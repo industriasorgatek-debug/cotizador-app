@@ -5,17 +5,22 @@ import uuid
 # Configuración de la página
 st.set_page_config(page_title="Cotizador Online", page_icon="📄", layout="wide")
 
-# Conexión a Supabase usando Secrets de Streamlit
+# Conexión a Supabase limpia y segura
 @st.cache_resource
 def init_supabase() -> Client:
-    url = st.secrets["SUPABASE_URL"]
-    key = st.secrets["SUPABASE_KEY"]
-    return create_client(url, key)
+    # Obtener y limpiar la URL (eliminar /rest/v1 o barras al final si existen)
+    raw_url = st.secrets["SUPABASE_URL"].strip().rstrip('/')
+    if raw_url.endswith("/rest/v1"):
+        raw_url = raw_url[:-8].rstrip('/')
+    
+    key = st.secrets["SUPABASE_KEY"].strip()
+    return create_client(raw_url, key)
 
 try:
     supabase = init_supabase()
 except Exception as e:
-    st.error("Error al conectar con Supabase. Verifica tus Secrets en Streamlit.")
+    st.error("Error al inicializar el cliente de Supabase:")
+    st.exception(e)
     st.stop()
 
 # Menú Principal
@@ -29,9 +34,15 @@ if opcion == "1. Empresas":
     st.title("🏢 Gestión de Empresas Cotizadoras")
     st.write("Registra o edita los datos de la empresa, su logotipo y el sello/firma.")
 
-    # Consultar empresas existentes en Supabase
-    res = supabase.table("empresas").select("*").execute()
-    empresas = res.data
+    # Consultar empresas existentes con captura de errores explícita
+    try:
+        res = supabase.table("empresas").select("*").execute()
+        empresas = res.data
+    except Exception as e:
+        st.error("🚨 Error al conectar con la tabla 'empresas' de Supabase:")
+        st.write(e)
+        st.info("Verifica tus Secrets en Streamlit o confirma que la tabla exista en el mismo proyecto.")
+        st.stop()
 
     modo = st.radio("Acción:", ["Registrar Nueva Empresa", "Editar Empresa Existente"], horizontal=True)
 
@@ -117,7 +128,7 @@ if opcion == "1. Empresas":
             st.rerun()
 
 # ==========================================
-# MÓDULOS EN CONSTRUCCIÓN (PASO SIGUIENTE)
+# MÓDULOS EN CONSTRUCCIÓN
 # ==========================================
 elif opcion == "2. Cotizar":
     st.title("📝 Generar Nueva Cotización")
