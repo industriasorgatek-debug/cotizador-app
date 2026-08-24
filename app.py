@@ -4,17 +4,17 @@ import uuid
 import pandas as pd
 from fpdf import FPDF
 import io
+import urllib.request
 from datetime import datetime
 
 # Configuración de la página
 st.set_page_config(page_title="Cotizador Online", page_icon="📄", layout="wide")
 
-# Lectura directa de Secrets SIN memoria caché
+# Conexión a Supabase
 try:
     url = st.secrets["SUPABASE_URL"].strip().rstrip('/')
     if url.endswith("/rest/v1"):
         url = url[:-8].rstrip('/')
-    
     key = st.secrets["SUPABASE_KEY"].strip()
     supabase: Client = create_client(url, key)
 except Exception as e:
@@ -22,78 +22,221 @@ except Exception as e:
     st.write(e)
     st.stop()
 
-# Función para generar el PDF en memoria
+
+# Función auxiliar para descargar imágenes de URL para el PDF
+def obtener_bytes_imagen(url_img):
+    if not url_img:
+        return None
+    try:
+        req = urllib.request.Request(url_img, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=5) as response:
+            return io.BytesIO(response.read())
+    except Exception:
+        return None
+
+
+# ==========================================
+# DISEÑADOR DE PDF PROFESIONAL / EJECUTIVO
+# ==========================================
 def crear_pdf_cotizacion(empresa, cliente_nombre, cliente_rif, cliente_dir, moneda, items, subtotal, total, num_cotizacion):
-    pdf = FPDF()
+    pdf = FPDF(orientation="P", unit="mm", format="A4")
+    pdf.set_margins(15, 15, 15)
     pdf.add_page()
-    pdf.set_font("Helvetica", size=12)
+    pdf.set_auto_page_break(auto=True, margin=20)
     
-    # Encabezado
-    pdf.set_font("Helvetica", "B", 16)
-    pdf.cell(0, 10, f"COTIZACIÓN N° {num_cotizacion}", align="C", new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(5)
+    # ------------------------------------
+    # 1. ENCABEZADO Y LOGO
+    # ------------------------------------
+    # Descargar imágenes
+    logo_bytes = obtener_bytes_imagen(empresa.get("logo_url"))
+    sello_bytes = obtener_bytes_imagen(empresa.get("sello_firma_url"))
+
+    # Renderizar Logo
+    if logo_bytes:
+        try:
+            pdf.image(logo_bytes, x=15, y=14, w=45)
+        except Exception:
+            pdf.set_font("Helvetica", "B", 16)
+            pdf.cell(90, 10, empresa['nombre'][:25], ln=False)
+    else:
+        pdf.set_font("Helvetica", "B", 16)
+        pdf.set_text_color(26, 54, 93) # Azul Marino
+        pdf.cell(90, 10, empresa['nombre'][:30], ln=False)
+
+    # Título del Documento a la derecha
+    pdf.set_xy(110, 14)
+    pdf.set_font("Helvetica", "B", 18)
+    pdf.set_text_color(26, 54, 93) # Azul Marino Principal
+    pdf.cell(85, 8, "COTIZACIÓN", align="R", new_x="LMARGIN", new_y="NEXT")
     
-    # Datos Emisor
+    pdf.set_x(110)
     pdf.set_font("Helvetica", "B", 11)
-    pdf.cell(0, 6, f"EMISOR: {empresa['nombre']}", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_font("Helvetica", size=10)
-    pdf.cell(0, 5, f"RIF/Tax ID: {empresa['rif']}", new_x="LMARGIN", new_y="NEXT")
-    pdf.cell(0, 5, f"Dirección: {empresa['direccion']}", new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(5)
+    pdf.set_text_color(100, 116, 139) # Gris Secundario
+    pdf.cell(85, 5, f"N°: {num_cotizacion}", align="R", new_x="LMARGIN", new_y="NEXT")
     
-    # Datos Cliente
-    pdf.set_font("Helvetica", "B", 11)
-    pdf.cell(0, 6, f"CLIENTE: {cliente_nombre}", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_font("Helvetica", size=10)
-    pdf.cell(0, 5, f"RIF/Tax ID: {cliente_rif}", new_x="LMARGIN", new_y="NEXT")
-    pdf.cell(0, 5, f"Dirección: {cliente_dir}", new_x="LMARGIN", new_y="NEXT")
-    pdf.cell(0, 5, f"Moneda de Cotización: {moneda}", new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(8)
+    pdf.set_x(110)
+    pdf.set_font("Helvetica", "", 10)
+    pdf.cell(85, 5, f"Fecha: {datetime.now().strftime('%d/%m/%Y')}", align="R", new_x="LMARGIN", new_y="NEXT")
+
+    pdf.ln(10)
     
-    # Tabla de Productos
+    # Línea Divisoria Elegante
+    pdf.set_draw_color(26, 54, 93)
+    pdf.set_line_width(0.8)
+    pdf.line(15, 42, 195, 42)
+    pdf.ln(4)
+
+    # ------------------------------------
+    # 2. BLOQUE EMISOR Y CLIENTE (2 Cajas)
+    # ------------------------------------
+    y_bloque = pdf.get_y()
+    
+    # Caja Emisor (Izquierda)
+    pdf.set_fill_color(248, 250, 252) # Gris ultra claro
+    pdf.set_draw_color(226, 232, 240)
+    pdf.rect(15, y_bloque, 87, 34, style="FD")
+    
+    pdf.set_xy(18, y_bloque + 3)
+    pdf.set_font("Helvetica", "B", 9)
+    pdf.set_text_color(26, 54, 93)
+    pdf.cell(80, 4, "EMISOR / PROVEEDOR", new_x="LMARGIN", new_y="NEXT")
+    
+    pdf.set_x(18)
     pdf.set_font("Helvetica", "B", 10)
-    pdf.cell(90, 7, "Descripción", border=1)
-    pdf.cell(25, 7, "Cant.", border=1, align="C")
-    pdf.cell(35, 7, "P. Unitario", border=1, align="R")
-    pdf.cell(40, 7, "Subtotal", border=1, align="R", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(30, 41, 59)
+    pdf.cell(80, 5, str(empresa['nombre'])[:38], new_x="LMARGIN", new_y="NEXT")
     
-    pdf.set_font("Helvetica", size=9)
+    pdf.set_x(18)
+    pdf.set_font("Helvetica", "", 8.5)
+    pdf.set_text_color(71, 85, 105)
+    pdf.cell(80, 4, f"RIF/Tax ID: {empresa['rif']}", new_x="LMARGIN", new_y="NEXT")
+    
+    pdf.set_x(18)
+    pdf.multi_cell(80, 4, f"Dir: {str(empresa['direccion'])[:80]}")
+
+    # Caja Cliente (Derecha)
+    pdf.rect(108, y_bloque, 87, 34, style="FD")
+    
+    pdf.set_xy(111, y_bloque + 3)
+    pdf.set_font("Helvetica", "B", 9)
+    pdf.set_text_color(26, 54, 93)
+    pdf.cell(80, 4, "CLIENTE / DESTINATARIO", new_x="LMARGIN", new_y="NEXT")
+    
+    pdf.set_x(111)
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.set_text_color(30, 41, 59)
+    pdf.cell(80, 5, str(cliente_nombre)[:38], new_x="LMARGIN", new_y="NEXT")
+    
+    pdf.set_x(111)
+    pdf.set_font("Helvetica", "", 8.5)
+    pdf.set_text_color(71, 85, 105)
+    pdf.cell(80, 4, f"RIF/Tax ID: {cliente_rif if cliente_rif else 'N/A'}", new_x="LMARGIN", new_y="NEXT")
+    
+    pdf.set_x(111)
+    pdf.multi_cell(80, 4, f"Dir: {str(cliente_dir if cliente_dir else 'N/A')[:80]}")
+
+    pdf.set_y(y_bloque + 38)
+
+    # ------------------------------------
+    # 3. TABLA DE PRODUCTOS Y SERVICIOS
+    # ------------------------------------
+    pdf.set_font("Helvetica", "B", 9)
+    pdf.set_fill_color(26, 54, 93) # Encabezado Azul Marino
+    pdf.set_text_color(255, 255, 255) # Texto Blanco
+    pdf.set_draw_color(26, 54, 93)
+
+    pdf.cell(95, 8, "  Descripción del Producto / Servicio", border=1, fill=True)
+    pdf.cell(20, 8, "Cant.", border=1, fill=True, align="C")
+    pdf.cell(30, 8, "P. Unitario", border=1, fill=True, align="R")
+    pdf.cell(35, 8, "Subtotal  ", border=1, fill=True, align="R", new_x="LMARGIN", new_y="NEXT")
+
+    # Filas de Productos
+    pdf.set_font("Helvetica", "", 9)
+    pdf.set_text_color(51, 65, 85)
+    pdf.set_draw_color(226, 232, 240)
+    
+    fill = False
     for item in items:
-        pdf.cell(90, 6, str(item['descripcion'])[:45], border=1)
-        pdf.cell(25, 6, str(item['cantidad']), border=1, align="C")
-        pdf.cell(35, 6, f"{item['precio']:.2f}", border=1, align="R")
-        pdf.cell(40, 6, f"{item['subtotal']:.2f}", border=1, align="R", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_fill_color(241, 245, 249) if fill else pdf.set_fill_color(255, 255, 255)
         
-    pdf.ln(5)
-    # Totales
-    pdf.set_font("Helvetica", "B", 11)
-    pdf.cell(150, 7, "TOTAL:", border=0, align="R")
-    pdf.cell(40, 7, f"{moneda} {total:.2f}", border=1, align="R", new_x="LMARGIN", new_y="NEXT")
-    
-    # Datos Bancarios
+        pdf.cell(95, 7, f"  {str(item['descripcion'])[:48]}", border="LRTB", fill=fill)
+        pdf.cell(20, 7, str(item['cantidad']), border="LRTB", align="C", fill=fill)
+        pdf.cell(30, 7, f"{item['precio']:,.2f}", border="LRTB", align="R", fill=fill)
+        pdf.cell(35, 7, f"{item['subtotal']:,.2f}  ", border="LRTB", align="R", fill=fill, new_x="LMARGIN", new_y="NEXT")
+        fill = not fill
+
+    pdf.ln(4)
+
+    # ------------------------------------
+    # 4. TOTALES Y BANCOS
+    # ------------------------------------
+    y_totales = pdf.get_y()
+
+    # Caja de Datos Bancarios (Izquierda)
     if empresa.get("datos_bancarios"):
-        pdf.ln(10)
-        pdf.set_font("Helvetica", "B", 10)
-        pdf.cell(0, 5, "DATOS DE PAGO / BANCOS:", new_x="LMARGIN", new_y="NEXT")
-        pdf.set_font("Helvetica", size=9)
-        pdf.multi_cell(0, 5, empresa['datos_bancarios'])
+        pdf.set_fill_color(248, 250, 252)
+        pdf.set_draw_color(226, 232, 240)
+        pdf.rect(15, y_totales, 105, 32, style="FD")
+        
+        pdf.set_xy(18, y_totales + 2)
+        pdf.set_font("Helvetica", "B", 8.5)
+        pdf.set_text_color(26, 54, 93)
+        pdf.cell(98, 4, "DATOS BANCARIOS / INSTRUCCIONES DE PAGO:", new_x="LMARGIN", new_y="NEXT")
+        
+        pdf.set_x(18)
+        pdf.set_font("Helvetica", "", 7.5)
+        pdf.set_text_color(71, 85, 105)
+        pdf.multi_cell(98, 3.5, str(empresa['datos_bancarios'])[:220])
+
+    # Caja Resumen del Total (Derecha)
+    pdf.set_xy(125, y_totales)
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.set_text_color(71, 85, 105)
+    pdf.cell(30, 7, "Moneda:", align="L")
+    pdf.cell(40, 7, str(moneda), align="R", new_x="LMARGIN", new_y="NEXT")
+    
+    pdf.set_x(125)
+    pdf.cell(30, 7, "Subtotal:", align="L")
+    pdf.cell(40, 7, f"{subtotal:,.2f}", align="R", new_x="LMARGIN", new_y="NEXT")
+
+    # Destacado del Total
+    pdf.set_x(125)
+    pdf.set_fill_color(26, 54, 93) # Azul Marino
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.cell(30, 9, "  TOTAL:", fill=True)
+    pdf.cell(40, 9, f"{total:,.2f}  ", fill=True, align="R", new_x="LMARGIN", new_y="NEXT")
+
+    # ------------------------------------
+    # 5. SELLO Y FIRMA HÚMEDA
+    # ------------------------------------
+    y_final = pdf.get_y() + 8
+    if sello_bytes:
+        try:
+            pdf.image(sello_bytes, x=130, y=y_final, w=48)
+            pdf.set_xy(130, y_final + 26)
+            pdf.set_font("Helvetica", "I", 8)
+            pdf.set_text_color(100, 116, 139)
+            pdf.cell(48, 4, "Firma / Sello Autorizado", align="C")
+        except Exception:
+            pass
 
     return bytes(pdf.output())
 
 
-# Menú Principal
+# ==========================================
+# MENÚ DE LA APLICACIÓN (STREAMLIT)
+# ==========================================
 st.sidebar.title("📌 Menú Cotizador")
 opcion = st.sidebar.radio("Selecciona un módulo:", ["1. Empresas", "2. Cotizar", "3. Historial"])
 
-# Diagnóstico visible en la barra lateral
 with st.sidebar.expander("🔍 Verificación de Datos"):
     st.write(f"**URL:** `{url}`")
     st.write(f"**Clave empieza con:** `{key[:12]}...`")
-    st.write(f"**Longitud de Clave:** `{len(key)} caracteres`")
 
-# ==========================================
-# MÓDULO 1: REGISTRO Y EDICIÓN DE EMPRESAS
-# ==========================================
+# ------------------------------------------
+# MÓDULO 1: EMPRESAS
+# ------------------------------------------
 if opcion == "1. Empresas":
     st.title("🏢 Gestión de Empresas Cotizadoras")
     st.write("Registra o edita los datos de la empresa, su logotipo y el sello/firma.")
@@ -102,7 +245,7 @@ if opcion == "1. Empresas":
         res = supabase.table("empresas").select("*").execute()
         empresas = res.data
     except Exception as e:
-        st.error("🚨 Error al consultar la tabla 'empresas' de Supabase:")
+        st.error("🚨 Error al consultar la tabla 'empresas':")
         st.write(e)
         st.stop()
 
@@ -128,7 +271,7 @@ if opcion == "1. Empresas":
         nombre = st.text_input("Nombre de la Empresa *", value=nombre_val)
         rif = st.text_input("Número de RIF / Tax ID *", value=rif_val)
         direccion = st.text_area("Dirección Fiscal", value=direccion_val)
-        datos_bancarios = st.text_area("Datos Bancarios para Transferencias", value=bancos_val, help="Ejemplo: Banco X, Cuenta Nro..., SWIFT...")
+        datos_bancarios = st.text_area("Datos Bancarios para Transferencias", value=bancos_val, help="Ej: Banco X, Cuenta Nro..., SWIFT...")
 
         st.subheader("🖼️ Imágenes Corporativas")
         col1, col2 = st.columns(2)
@@ -192,9 +335,9 @@ if opcion == "1. Empresas":
             
             st.rerun()
 
-# ==========================================
-# MÓDULO 2: GENERAR NUEVA COTIZACIÓN
-# ==========================================
+# ------------------------------------------
+# MÓDULO 2: COTIZAR
+# ------------------------------------------
 elif opcion == "2. Cotizar":
     st.title("📝 Generar Nueva Cotización")
     
@@ -288,24 +431,23 @@ elif opcion == "2. Cotizar":
                 "pdf_url": pdf_url
             }
             
-# GUARDADO SEGURO EN SUPABASE
             try:
                 supabase.table("cotizaciones").insert(datos_cotizacion).execute()
-                st.success("🎉 ¡Cotización generada y guardada con éxito!")
+                st.success("🎉 ¡Cotización profesional generada con éxito!")
                 st.download_button(
-                    label="⬇️ Descargar Cotización en PDF",
+                    label="⬇️ Descargar Cotización PDF Profesional",
                     data=pdf_bytes,
                     file_name=f"{num_cotizacion}.pdf",
                     mime="application/pdf",
                     use_container_width=True
                 )
             except Exception as e_db:
-                st.error("🚨 Error al guardar la cotización en Supabase:")
+                st.error("🚨 Error al guardar la cotización en la Base de Datos:")
                 st.write(e_db)
 
-# ==========================================
-# MÓDULO 3: HISTORIAL DE COTIZACIONES
-# ==========================================
+# ------------------------------------------
+# MÓDULO 3: HISTORIAL
+# ------------------------------------------
 elif opcion == "3. Historial":
     st.title("📚 Historial de Cotizaciones")
     st.info("Próximamente: Lista de cotizaciones emitidas y descargas.")
