@@ -43,20 +43,8 @@ def limpiar_texto(texto):
     return texto.encode("latin-1", "replace").decode("latin-1")
 
 
-# Función auxiliar para descargar imágenes de URL para el PDF
-def obtener_bytes_imagen(url_img):
-    if not url_img:
-        return None
-    try:
-        req = urllib.request.Request(url_img, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=5) as response:
-            return io.BytesIO(response.read())
-    except Exception:
-        return None
-
-
 # Función para imprimir bloques de texto formateando en NEGRITA lo que está antes de ':'
-def render_texto_con_dospuntos(pdf, texto, x_start, max_w, font_size=7.5):
+def render_texto_con_dospuntos(pdf, texto, x_start, max_w, font_size=8.5, line_h=4.5):
     if not texto:
         return
     for linea in str(texto).split("\n"):
@@ -71,14 +59,30 @@ def render_texto_con_dospuntos(pdf, texto, x_start, max_w, font_size=7.5):
             pdf.set_x(x_start)
             pdf.set_font("Helvetica", "B", font_size)
             w_clave = pdf.get_string_width(limpiar_texto(clave)) + 1.5
-            pdf.cell(w_clave, 3.5, limpiar_texto(clave), ln=0)
             
-            pdf.set_font("Helvetica", "", font_size)
-            pdf.multi_cell(max_w - w_clave, 3.5, limpiar_texto(valor))
+            # Si la clave es muy larga para la línea, hacer multi_cell
+            if w_clave > (max_w - 10):
+                pdf.multi_cell(max_w, line_h, limpiar_texto(linea))
+            else:
+                pdf.cell(w_clave, line_h, limpiar_texto(clave), ln=0)
+                pdf.set_font("Helvetica", "", font_size)
+                pdf.multi_cell(max_w - w_clave, line_h, limpiar_texto(valor))
         else:
             pdf.set_x(x_start)
             pdf.set_font("Helvetica", "", font_size)
-            pdf.multi_cell(max_w, 3.5, limpiar_texto(linea))
+            pdf.multi_cell(max_w, line_h, limpiar_texto(linea))
+
+
+# Función auxiliar para descargar imágenes de URL para el PDF
+def obtener_bytes_imagen(url_img):
+    if not url_img:
+        return None
+    try:
+        req = urllib.request.Request(url_img, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=5) as response:
+            return io.BytesIO(response.read())
+    except Exception:
+        return None
 
 
 # ==========================================
@@ -94,7 +98,6 @@ def crear_pdf_cotizacion(
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=20)
     
-    # Diccionario de traducciones
     es_ingles = (idioma == "Inglés")
     
     # Títulos principales según tipo e idioma
@@ -114,7 +117,7 @@ def crear_pdf_cotizacion(
     lbl_cant = "Qty" if es_ingles else "Cant."
     lbl_precio = "Unit Price" if es_ingles else "P. Unitario"
     lbl_sub = "Subtotal  "
-    lbl_bancos = "BANK DETAILS / PAYMENT INSTRUCTIONS:" if es_ingles else "DATOS BANCARIOS / INSTRUCCIONES DE PAGO:"
+    lbl_bancos = "BANK DETAILS / PAYMENT INSTRUCTIONS:" if es_ingles else "DATOS BANCARIOS PARA TRANSFERENCIA:"
     lbl_cond_pago = "Payment Terms:" if es_ingles else "Condiciones de Pago:"
     lbl_incoterm = "Incoterm:" if es_ingles else "Incoterm:"
     lbl_notas = "REMARKS / COMPLEMENTARY NOTES:" if es_ingles else "NOTAS COMPLEMENTARIAS / OBSERVACIONES:"
@@ -137,7 +140,6 @@ def crear_pdf_cotizacion(
         pdf.set_text_color(26, 54, 93)
         pdf.cell(90, 10, limpiar_texto(empresa['nombre'])[:30], ln=False)
 
-    # Título del Documento a la derecha
     pdf.set_xy(105, 12)
     pdf.set_font("Helvetica", "B", 16)
     pdf.set_text_color(26, 54, 93)
@@ -216,7 +218,7 @@ def crear_pdf_cotizacion(
     pdf.set_y(y_bloque + 38)
 
     # ------------------------------------
-    # 3. TABLA DE PRODUCTOS
+    # 3. TABLA DE PRODUCTOS Y SERVICIOS
     # ------------------------------------
     pdf.set_font("Helvetica", "B", 9)
     pdf.set_fill_color(26, 54, 93)
@@ -241,77 +243,128 @@ def crear_pdf_cotizacion(
         pdf.cell(35, 7, f"{item['subtotal']:,.2f}  ", border="LRTB", align="R", fill=fill, new_x="LMARGIN", new_y="NEXT")
         fill = not fill
 
-    pdf.ln(4)
+    pdf.ln(5)
 
     # ------------------------------------
-    # 4. TOTALES Y CONDICIONES
+    # 4. MÓDULO BANCARIO Y TOTALES
     # ------------------------------------
-    y_totales = pdf.get_y()
+    y_seccion4 = pdf.get_y()
 
-    # Caja de Datos Bancarios e Instrucciones (Izquierda)
-    if empresa.get("datos_bancarios") or condiciones_pago or (incoterm and incoterm != "N/A"):
+    # --- 4A. MÓDULO EXCLUSIVO DE DATOS BANCARIOS (Izquierda) ---
+    bancos_texto = empresa.get("datos_bancarios", "")
+    lineas_bancos = [l for l in str(bancos_texto).split("\n") if l.strip()]
+    num_lineas_bancos = len(lineas_bancos)
+
+    # Cálculo dinámico de altura para que la caja contenga TODO holgadamente
+    box_h_bancos = max(32, (num_lineas_bancos * 5) + 8)
+
+    if bancos_texto:
         pdf.set_fill_color(248, 250, 252)
         pdf.set_draw_color(226, 232, 240)
-        pdf.rect(15, y_totales, 105, 36, style="FD")
+        pdf.rect(15, y_seccion4, 102, box_h_bancos, style="FD")
         
-        pdf.set_xy(18, y_totales + 2)
-        pdf.set_font("Helvetica", "B", 8)
+        pdf.set_xy(18, y_seccion4 + 3)
+        pdf.set_font("Helvetica", "B", 8.5)
         pdf.set_text_color(26, 54, 93)
-        pdf.cell(98, 4, lbl_bancos, new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(96, 4, lbl_bancos, new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(1)
         
-        # Renderizado de Datos Bancarios con NEGRITA antes de los ':'
-        if empresa.get("datos_bancarios"):
-            render_texto_con_dospuntos(pdf, empresa['datos_bancarios'], x_start=18, max_w=98, font_size=7)
+        # Renderizado con letra más grande (8.5pt) y negrita antes de ':'
+        render_texto_con_dospuntos(pdf, bancos_texto, x_start=18, max_w=96, font_size=8.5, line_h=4.8)
 
-        # Incoterm y Condiciones de Pago
-        pdf.set_font("Helvetica", "", 7.5)
-        pdf.set_text_color(71, 85, 105)
-        if condiciones_pago:
-            render_texto_con_dospuntos(pdf, f"{lbl_cond_pago} {condiciones_pago}", x_start=18, max_w=98, font_size=7.5)
-        if incoterm and incoterm != "N/A":
-            render_texto_con_dospuntos(pdf, f"{lbl_incoterm} {incoterm}", x_start=18, max_w=98, font_size=7.5)
-
-    # Caja Resumen del Total (Derecha)
-    pdf.set_xy(125, y_totales)
+    # --- 4B. MÓDULO RESUMEN DE TOTALES (Derecha) ---
+    pdf.set_xy(123, y_seccion4)
     pdf.set_font("Helvetica", "B", 9)
     pdf.set_text_color(71, 85, 105)
-    pdf.cell(30, 6, "Moneda / Currency:" if es_ingles else "Moneda:", align="L")
+    
+    pdf.cell(32, 6, "Moneda / Currency:" if es_ingles else "Moneda:", align="L")
     pdf.cell(40, 6, limpiar_texto(moneda), align="R", new_x="LMARGIN", new_y="NEXT")
     
-    pdf.set_x(125)
-    pdf.cell(30, 6, "Subtotal:", align="L")
+    pdf.set_x(123)
+    pdf.cell(32, 6, "Subtotal:", align="L")
     pdf.cell(40, 6, f"{subtotal:,.2f}", align="R", new_x="LMARGIN", new_y="NEXT")
 
     if monto_iva > 0:
-        pdf.set_x(125)
+        pdf.set_x(123)
         lbl_tax = f"Tax/VAT ({alicuota_iva:.0f}%):" if es_ingles else f"IVA ({alicuota_iva:.0f}%):"
-        pdf.cell(30, 6, lbl_tax, align="L")
+        pdf.cell(32, 6, lbl_tax, align="L")
         pdf.cell(40, 6, f"{monto_iva:,.2f}", align="R", new_x="LMARGIN", new_y="NEXT")
 
     # Destacado del Total
-    pdf.set_x(125)
+    pdf.set_x(123)
     pdf.set_fill_color(26, 54, 93)
     pdf.set_text_color(255, 255, 255)
     pdf.set_font("Helvetica", "B", 10.5)
-    pdf.cell(30, 8, "  TOTAL:", fill=True)
-    pdf.cell(40, 8, f"{total:,.2f}  ", fill=True, align="R", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(32, 8.5, "  TOTAL:", fill=True)
+    pdf.cell(40, 8.5, f"{total:,.2f}  ", fill=True, align="R", new_x="LMARGIN", new_y="NEXT")
+
+    # Definir posición Y para los siguientes módulos
+    y_pos_siguiente = max(y_seccion4 + box_h_bancos + 5, pdf.get_y() + 6)
+    pdf.set_y(y_pos_siguiente)
 
     # ------------------------------------
-    # 5. NOTAS COMPLEMENTARIAS
+    # 5. MÓDULO EXCLUSIVO DE CONDICIONES COMERCIALES
     # ------------------------------------
-    pdf.set_y(y_totales + 38)
-    if notas:
-        pdf.set_font("Helvetica", "B", 8)
+    if condiciones_pago or (incoterm and incoterm != "N/A") or validez:
+        y_cond = pdf.get_y()
+        
+        lineas_cond = 0
+        if condiciones_pago: lineas_cond += 1
+        if incoterm and incoterm != "N/A": lineas_cond += 1
+        if validez: lineas_cond += 1
+        
+        box_h_cond = (lineas_cond * 5) + 8
+        
+        pdf.set_fill_color(248, 250, 252)
+        pdf.set_draw_color(226, 232, 240)
+        pdf.rect(15, y_cond, 180, box_h_cond, style="FD")
+        
+        pdf.set_xy(18, y_cond + 3)
+        pdf.set_font("Helvetica", "B", 8.5)
         pdf.set_text_color(26, 54, 93)
-        pdf.cell(0, 4, lbl_notas, new_x="LMARGIN", new_y="NEXT")
-        render_texto_con_dospuntos(pdf, notas, x_start=15, max_w=180, font_size=7.5)
+        pdf.cell(174, 4, "CONDICIONES COMERCIALES / TERMS OF SALE:" if es_ingles else "CONDICIONES COMERCIALES Y DE PAGO:", new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(1)
+        
+        if condiciones_pago:
+            render_texto_con_dospuntos(pdf, f"{lbl_cond_pago} {condiciones_pago}", x_start=18, max_w=174, font_size=8.5, line_h=4.5)
+        if incoterm and incoterm != "N/A":
+            render_texto_con_dospuntos(pdf, f"{lbl_incoterm} {incoterm}", x_start=18, max_w=174, font_size=8.5, line_h=4.5)
+        if validez:
+            render_texto_con_dospuntos(pdf, f"{lbl_validez} {validez}", x_start=18, max_w=174, font_size=8.5, line_h=4.5)
+            
+        pdf.set_y(y_cond + box_h_cond + 5)
 
     # ------------------------------------
-    # 6. SELLO Y FIRMA HÚMEDA
+    # 6. MÓDULO EXCLUSIVO DE NOTAS COMPLEMENTARIAS
     # ------------------------------------
-    y_final = pdf.get_y() + 4
+    if notas:
+        y_notas = pdf.get_y()
+        lineas_notas_count = len([l for l in str(notas).split("\n") if l.strip()])
+        box_h_notas = max(16, (lineas_notas_count * 5) + 8)
+        
+        pdf.set_fill_color(255, 255, 255)
+        pdf.set_draw_color(226, 232, 240)
+        pdf.rect(15, y_notas, 180, box_h_notas, style="FD")
+        
+        pdf.set_xy(18, y_notas + 3)
+        pdf.set_font("Helvetica", "B", 8.5)
+        pdf.set_text_color(26, 54, 93)
+        pdf.cell(174, 4, lbl_notas, new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(1)
+        
+        render_texto_con_dospuntos(pdf, notas, x_start=18, max_w=174, font_size=8.5, line_h=4.5)
+        pdf.set_y(y_notas + box_h_notas + 5)
+
+    # ------------------------------------
+    # 7. SELLO Y FIRMA HÚMEDA
+    # ------------------------------------
+    y_final = pdf.get_y() + 2
     if sello_bytes:
         try:
+            if y_final + 28 > 280:
+                pdf.add_page()
+                y_final = 20
+                
             pdf.image(sello_bytes, x=135, y=y_final, w=45)
             pdf.set_xy(135, y_final + 24)
             pdf.set_font("Helvetica", "I", 8)
@@ -373,7 +426,7 @@ if opcion == "1. Empresas":
         datos_bancarios = st.text_area(
             "Datos Bancarios para Transferencias", 
             value=bancos_val, 
-            help="Puedes escribir en líneas con dos puntos (:), por ejemplo:\nBank: Bank of America\nAccount: 12345678"
+            help="Escribe cada dato en su línea con dos puntos (:), ejemplo:\nBank Name: Bank of America\nAccount Number: 1234567"
         )
 
         st.subheader("🖼️ Imágenes Corporativas")
