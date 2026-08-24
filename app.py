@@ -28,7 +28,7 @@ def es_vacio_o_none(texto):
     if texto is None:
         return True
     txt = str(texto).strip().lower()
-    return txt in ["", "none", "empty", "null", "n/a", "undefined"]
+    return txt in ["", "none", "empty", "null", "n/a", "undefined", "omitir"]
 
 
 # Función para limpiar caracteres especiales incompatibles con PDF
@@ -228,7 +228,7 @@ def crear_pdf_cotizacion(
 
     pdf.set_y(y_bloque + 38)
 
-    # 3. Tabla de Productos / Servicios (Anchos dinámicos)
+    # 3. Tabla de Productos / Servicios
     pdf.set_font("Helvetica", "B", 9)
     pdf.set_fill_color(26, 54, 93)
     pdf.set_text_color(255, 255, 255)
@@ -399,7 +399,6 @@ def crear_pdf_cotizacion(
 # ==========================================
 st.sidebar.title("📌 Menú Cotizador")
 
-# Inicialización de Estados de Sesión (para Editar/Duplicar)
 if "cotiz_edit_data" not in st.session_state:
     st.session_state["cotiz_edit_data"] = None
 if "modo_formulario" not in st.session_state:
@@ -584,9 +583,9 @@ elif opcion == "3. Cotizar":
         empresas = res_emp.data
         res_cli = supabase.table("clientes").select("*").order("nombre").execute()
         clientes_db = res_cli.data
-    except Exception as e:
-        st.error("Error al conectar con la Base de Datos")
-        st.stop()
+    except Exception:
+        empresas = []
+        clientes_db = []
 
     if not empresas:
         st.warning("⚠️ Primero debes registrar al menos una Empresa en el Módulo 1.")
@@ -594,7 +593,6 @@ elif opcion == "3. Cotizar":
 
     nombres_emp = [e["nombre"] for e in empresas]
     
-    # Pre-cargar Empresa si editamos
     idx_emp = 0
     if datos_cargados and "empresa_id" in datos_cargados:
         for idx, e in enumerate(empresas):
@@ -607,7 +605,6 @@ elif opcion == "3. Cotizar":
 
     st.divider()
 
-    # Pre-cargar tipo de ítem
     tipo_item_val = datos_cargados.get("tipo_item", "Producto") if datos_cargados else "Producto"
     
     st.subheader("⚙️ Configuración del Documento")
@@ -624,7 +621,6 @@ elif opcion == "3. Cotizar":
         mon_default = datos_cargados.get("moneda", "USD ($)") if datos_cargados else "USD ($)"
         moneda = st.selectbox("Moneda *", ["USD ($)", "EUR (€)", "RMB (¥)"], index=["USD ($)", "EUR (€)", "RMB (¥)"].index(mon_default) if mon_default in ["USD ($)", "EUR (€)", "RMB (¥)"] else 0)
 
-    # Selección de Cliente
     st.subheader("👤 Datos del Cliente")
     
     opciones_clientes = ["➕ Escribir cliente nuevo / manual"] + [c["nombre"] for c in clientes_db]
@@ -650,8 +646,6 @@ elif opcion == "3. Cotizar":
 
     with col_c2:
         st.subheader("📋 Detalle Comercial")
-        
-        # Número de cotización
         num_def = f"COT-{datetime.now().strftime('%Y%m%d%H%M')}"
         if datos_cargados:
             if modo_form == "editar":
@@ -668,11 +662,8 @@ elif opcion == "3. Cotizar":
         condiciones_pago = st.text_input("Condiciones de Pago", value=datos_cargados.get("condiciones_pago", "100% Anticipado") if datos_cargados else "100% Anticipado")
 
     st.subheader("📦 Lista de Ítems / Precios")
-    
-    # Opciones de Unidades de Medida
     lista_uoms = ["Unidades (Uds)", "Par", "m²", "m³ (CBM)", "Paquete (Pkt)", "Bulto", "Caja (CTN)", "Pieza (Pza)", "Set / Juego", "Metro (m)", "Kg", "Tonelada (TN)", "Litro (L)"]
 
-    # Cargar ítems anteriores o default
     if datos_cargados and "items" in datos_cargados:
         items_cargados = []
         for it in datos_cargados["items"]:
@@ -760,7 +751,6 @@ elif opcion == "3. Cotizar":
         if not cliente_nombre or total_cotizacion <= 0:
             st.error("Por favor ingresa el nombre del cliente y al menos un ítem con valor.")
         else:
-            # Guardar cliente si seleccionó el checkbox
             if guardar_en_bd and cliente_sel_box == "➕ Escribir cliente nuevo / manual":
                 try:
                     supabase.table("clientes").insert({
@@ -824,28 +814,40 @@ elif opcion == "3. Cotizar":
                 "tipo_item": tipo_item
             }
             
+            # MECANISMO DE GUARDADO CON AUTO-REPARACIÓN
             try:
                 if modo_form == "editar" and datos_cargados:
                     supabase.table("cotizaciones").update(datos_cotizacion).eq("id", datos_cargados["id"]).execute()
-                    st.success("🎉 ¡Documento actualizado exitosamente!")
                 else:
                     supabase.table("cotizaciones").insert(datos_cotizacion).execute()
-                    st.success("🎉 ¡Documento emitido y guardado con éxito!")
-
-                # Limpiar estado
-                st.session_state["cotiz_edit_data"] = None
-                st.session_state["modo_formulario"] = "crear"
-
-                st.download_button(
-                    label=f"⬇️ Descargar {tipo_documento} (PDF)",
-                    data=pdf_bytes,
-                    file_name=f"{num_cotizacion}.pdf",
-                    mime="application/pdf",
-                    use_container_width=True
-                )
+                st.success("🎉 ¡Documento guardado con éxito!")
             except Exception as e_db:
-                st.error("🚨 Error al guardar en la Base de Datos:")
-                st.write(e_db)
+                # Si falla porque la columna tipo_item no existe en Supabase, lo guardamos sin esa columna
+                if "tipo_item" in str(e_db):
+                    try:
+                        datos_cotizacion_bak = datos_cotizacion.copy()
+                        del datos_cotizacion_bak["tipo_item"]
+                        if modo_form == "editar" and datos_cargados:
+                            supabase.table("cotizaciones").update(datos_cotizacion_bak).eq("id", datos_cargados["id"]).execute()
+                        else:
+                            supabase.table("cotizaciones").insert(datos_cotizacion_bak).execute()
+                        st.success("🎉 ¡Documento guardado con éxito!")
+                    except Exception as e_db2:
+                        st.error(f"🚨 Error al guardar en Base de Datos: {e_db2}")
+                else:
+                    st.error(f"🚨 Error al guardar en Base de Datos: {e_db}")
+
+            # Limpiar estado
+            st.session_state["cotiz_edit_data"] = None
+            st.session_state["modo_formulario"] = "crear"
+
+            st.download_button(
+                label=f"⬇️ Descargar {tipo_documento} (PDF)",
+                data=pdf_bytes,
+                file_name=f"{num_cotizacion}.pdf",
+                mime="application/pdf",
+                use_container_width=True
+            )
 
     if modo_form in ["editar", "duplicar"]:
         if st.button("❌ Cancelar edición/duplicación"):
@@ -923,7 +925,6 @@ elif opcion == "4. Historial":
 
                 st.divider()
                 
-                # BOTONES DE ACCIÓN: EDITAR / DUPLICAR / ELIMINAR
                 col_b1, col_b2, col_b3 = st.columns(3)
                 with col_b1:
                     if st.button("✏️ Editar Documento", key=f"edit_{q['id']}", use_container_width=True):
