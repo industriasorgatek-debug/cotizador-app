@@ -1,4 +1,5 @@
 streamlit
 supabase
 fpdf2
+pandas
 pillow
