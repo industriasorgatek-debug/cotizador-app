@@ -23,9 +23,17 @@ except Exception as e:
     st.stop()
 
 
+# Función para determinar si un texto debe considerarse "vacío" u "oculto"
+def es_vacio_o_none(texto):
+    if texto is None:
+        return True
+    txt = str(texto).strip().lower()
+    return txt in ["", "none", "empty", "null", "n/a", "undefined"]
+
+
 # Función para limpiar caracteres especiales incompatibles con PDF
 def limpiar_texto(texto):
-    if texto is None:
+    if es_vacio_o_none(texto):
         return ""
     texto = str(texto)
     reemplazos = {
@@ -45,11 +53,11 @@ def limpiar_texto(texto):
 
 # Función para imprimir bloques de texto formateando en NEGRITA lo que está antes de ':'
 def render_texto_con_dospuntos(pdf, texto, x_start, max_w, font_size=8.5, line_h=4.5):
-    if not texto:
+    if es_vacio_o_none(texto):
         return
     for linea in str(texto).split("\n"):
         linea = linea.strip()
-        if not linea:
+        if not linea or es_vacio_o_none(linea):
             continue
         if ":" in linea:
             partes = linea.split(":", 1)
@@ -74,7 +82,7 @@ def render_texto_con_dospuntos(pdf, texto, x_start, max_w, font_size=8.5, line_h
 
 # Función auxiliar para descargar imágenes de URL para el PDF
 def obtener_bytes_imagen(url_img):
-    if not url_img:
+    if es_vacio_o_none(url_img):
         return None
     try:
         req = urllib.request.Request(url_img, headers={'User-Agent': 'Mozilla/5.0'})
@@ -90,7 +98,7 @@ def obtener_bytes_imagen(url_img):
 def crear_pdf_cotizacion(
     empresa, cliente_nombre, cliente_rif, cliente_dir, moneda, items, 
     subtotal, monto_iva, alicuota_iva, total, num_cotizacion,
-    tipo_documento, idioma, validez, incoterm, condiciones_pago, notas
+    tipo_documento, idioma, validez, incoterm, condiciones_pago, notas, tipo_item
 ):
     pdf = FPDF(orientation="P", unit="mm", format="A4")
     pdf.set_margins(15, 15, 15)
@@ -98,6 +106,7 @@ def crear_pdf_cotizacion(
     pdf.set_auto_page_break(auto=True, margin=20)
     
     es_ingles = (idioma == "Inglés")
+    es_producto = (tipo_item == "Producto")
     
     if tipo_documento == "Proforma Invoice":
         titulo_doc = "PROFORMA INVOICE"
@@ -111,10 +120,11 @@ def crear_pdf_cotizacion(
     lbl_validez = "Validity:" if es_ingles else "Validez:"
     lbl_emisor = "ISSUER / SUPPLIER" if es_ingles else "EMISOR / PROVEEDOR"
     lbl_cliente = "CLIENT / RECIPIENT" if es_ingles else "CLIENTE / DESTINATARIO"
-    lbl_desc = "  Description of Goods / Services" if es_ingles else "  Descripcion del Producto / Servicio"
+    lbl_desc = " Description of Goods" if (es_ingles and es_producto) else (" Description of Services" if es_ingles else (" Descripcion del Producto" if es_producto else " Descripcion del Servicio"))
+    lbl_um = "UOM" if es_ingles else "U.M."
     lbl_cant = "Qty" if es_ingles else "Cant."
     lbl_precio = "Unit Price" if es_ingles else "P. Unitario"
-    lbl_sub = "Subtotal  "
+    lbl_sub = "Subtotal "
     lbl_bancos = "BANK DETAILS / PAYMENT INSTRUCTIONS:" if es_ingles else "DATOS BANCARIOS PARA TRANSFERENCIA:"
     lbl_cond_pago = "Payment Terms:" if es_ingles else "Condiciones de Pago:"
     lbl_incoterm = "Incoterm:" if es_ingles else "Incoterm:"
@@ -150,7 +160,7 @@ def crear_pdf_cotizacion(
     pdf.set_font("Helvetica", "", 9)
     pdf.cell(90, 4, f"{lbl_fecha} {datetime.now().strftime('%d/%m/%Y')}", align="R", new_x="LMARGIN", new_y="NEXT")
 
-    if validez:
+    if not es_vacio_o_none(validez):
         pdf.set_x(105)
         pdf.cell(90, 4, limpiar_texto(f"{lbl_validez} {validez}"), align="R", new_x="LMARGIN", new_y="NEXT")
 
@@ -161,9 +171,10 @@ def crear_pdf_cotizacion(
     pdf.line(15, 42, 195, 42)
     pdf.ln(4)
 
-    # 2. Bloque Emisor y Cliente
+    # 2. Bloque Emisor y Cliente (Con Ocultamiento Inteligente)
     y_bloque = pdf.get_y()
     
+    # Emisor
     pdf.set_fill_color(248, 250, 252)
     pdf.set_draw_color(226, 232, 240)
     pdf.rect(15, y_bloque, 87, 34, style="FD")
@@ -178,14 +189,19 @@ def crear_pdf_cotizacion(
     pdf.set_text_color(30, 41, 59)
     pdf.cell(80, 4.5, limpiar_texto(empresa['nombre'])[:38], new_x="LMARGIN", new_y="NEXT")
     
-    pdf.set_x(18)
-    pdf.set_font("Helvetica", "", 8)
-    pdf.set_text_color(71, 85, 105)
-    pdf.cell(80, 4, limpiar_texto(f"RIF/Tax ID: {empresa['rif']}"), new_x="LMARGIN", new_y="NEXT")
+    if not es_vacio_o_none(empresa.get('rif')):
+        pdf.set_x(18)
+        pdf.set_font("Helvetica", "", 8)
+        pdf.set_text_color(71, 85, 105)
+        pdf.cell(80, 4, limpiar_texto(f"RIF/Tax ID: {empresa['rif']}"), new_x="LMARGIN", new_y="NEXT")
     
-    pdf.set_x(18)
-    pdf.multi_cell(80, 3.8, limpiar_texto(f"Dir: {empresa['direccion']}")[:80])
+    if not es_vacio_o_none(empresa.get('direccion')):
+        pdf.set_x(18)
+        pdf.set_font("Helvetica", "", 8)
+        pdf.set_text_color(71, 85, 105)
+        pdf.multi_cell(80, 3.8, limpiar_texto(f"Dir: {empresa['direccion']}")[:80])
 
+    # Cliente
     pdf.rect(108, y_bloque, 87, 34, style="FD")
     
     pdf.set_xy(111, y_bloque + 3)
@@ -198,52 +214,79 @@ def crear_pdf_cotizacion(
     pdf.set_text_color(30, 41, 59)
     pdf.cell(80, 4.5, limpiar_texto(cliente_nombre)[:38], new_x="LMARGIN", new_y="NEXT")
     
-    pdf.set_x(111)
-    pdf.set_font("Helvetica", "", 8)
-    pdf.set_text_color(71, 85, 105)
-    pdf.cell(80, 4, limpiar_texto(f"RIF/Tax ID: {cliente_rif if cliente_rif else 'N/A'}"), new_x="LMARGIN", new_y="NEXT")
+    if not es_vacio_o_none(cliente_rif):
+        pdf.set_x(111)
+        pdf.set_font("Helvetica", "", 8)
+        pdf.set_text_color(71, 85, 105)
+        pdf.cell(80, 4, limpiar_texto(f"RIF/Tax ID: {cliente_rif}"), new_x="LMARGIN", new_y="NEXT")
     
-    pdf.set_x(111)
-    pdf.multi_cell(80, 3.8, limpiar_texto(f"Dir: {cliente_dir if cliente_dir else 'N/A'}")[:80])
+    if not es_vacio_o_none(cliente_dir):
+        pdf.set_x(111)
+        pdf.set_font("Helvetica", "", 8)
+        pdf.set_text_color(71, 85, 105)
+        pdf.multi_cell(80, 3.8, limpiar_texto(f"Dir: {cliente_dir}")[:80])
 
     pdf.set_y(y_bloque + 38)
 
-    # 3. Tabla de Productos
+    # 3. Tabla de Productos / Servicios (Anchos dinámicos)
     pdf.set_font("Helvetica", "B", 9)
     pdf.set_fill_color(26, 54, 93)
     pdf.set_text_color(255, 255, 255)
     pdf.set_draw_color(26, 54, 93)
 
-    pdf.cell(95, 8, lbl_desc, border=1, fill=True)
-    pdf.cell(20, 8, lbl_cant, border=1, fill=True, align="C")
-    pdf.cell(30, 8, lbl_precio, border=1, fill=True, align="R")
-    pdf.cell(35, 8, lbl_sub, border=1, fill=True, align="R", new_x="LMARGIN", new_y="NEXT")
+    if es_producto:
+        w_desc, w_um, w_cant, w_prec, w_sub = 75, 20, 15, 32, 38
+        pdf.cell(w_desc, 8, lbl_desc, border=1, fill=True)
+        pdf.cell(w_um, 8, lbl_um, border=1, fill=True, align="C")
+        pdf.cell(w_cant, 8, lbl_cant, border=1, fill=True, align="C")
+        pdf.cell(w_prec, 8, lbl_precio, border=1, fill=True, align="R")
+        pdf.cell(w_sub, 8, lbl_sub, border=1, fill=True, align="R", new_x="LMARGIN", new_y="NEXT")
+    else:
+        w_desc, w_cant, w_prec, w_sub = 95, 20, 30, 35
+        pdf.cell(w_desc, 8, lbl_desc, border=1, fill=True)
+        pdf.cell(w_cant, 8, lbl_cant, border=1, fill=True, align="C")
+        pdf.cell(w_prec, 8, lbl_precio, border=1, fill=True, align="R")
+        pdf.cell(w_sub, 8, lbl_sub, border=1, fill=True, align="R", new_x="LMARGIN", new_y="NEXT")
 
-    pdf.set_font("Helvetica", "", 9)
+    pdf.set_font("Helvetica", "", 8.5)
     pdf.set_text_color(51, 65, 85)
     pdf.set_draw_color(226, 232, 240)
     
     fill = False
     for item in items:
         pdf.set_fill_color(241, 245, 249) if fill else pdf.set_fill_color(255, 255, 255)
-        pdf.cell(95, 7, f"  {limpiar_texto(item['descripcion'])[:48]}", border="LRTB", fill=fill)
-        pdf.cell(20, 7, str(item['cantidad']), border="LRTB", align="C", fill=fill)
-        pdf.cell(30, 7, f"{item['precio']:,.2f}", border="LRTB", align="R", fill=fill)
-        pdf.cell(35, 7, f"{item['subtotal']:,.2f}  ", border="LRTB", align="R", fill=fill, new_x="LMARGIN", new_y="NEXT")
+        
+        desc_texto = f" {limpiar_texto(item['descripcion'])}"
+        if es_producto and not es_vacio_o_none(item.get("presentacion")):
+            desc_texto += f" [{limpiar_texto(item['presentacion'])}]"
+        desc_corta = desc_texto[:45]
+
+        if es_producto:
+            um_texto = limpiar_texto(item.get("uom", "Uds"))[:10]
+            pdf.cell(w_desc, 7, desc_corta, border="LRTB", fill=fill)
+            pdf.cell(w_um, 7, um_texto, border="LRTB", align="C", fill=fill)
+            pdf.cell(w_cant, 7, str(item['cantidad']), border="LRTB", align="C", fill=fill)
+            pdf.cell(w_prec, 7, f"{item['precio']:,.2f}", border="LRTB", align="R", fill=fill)
+            pdf.cell(w_sub, 7, f"{item['subtotal']:,.2f} ", border="LRTB", align="R", fill=fill, new_x="LMARGIN", new_y="NEXT")
+        else:
+            pdf.cell(w_desc, 7, desc_corta, border="LRTB", fill=fill)
+            pdf.cell(w_cant, 7, str(item['cantidad']), border="LRTB", align="C", fill=fill)
+            pdf.cell(w_prec, 7, f"{item['precio']:,.2f}", border="LRTB", align="R", fill=fill)
+            pdf.cell(w_sub, 7, f"{item['subtotal']:,.2f} ", border="LRTB", align="R", fill=fill, new_x="LMARGIN", new_y="NEXT")
+            
         fill = not fill
 
     pdf.ln(5)
 
     # 4. Módulo Bancario y Totales
     y_seccion4 = pdf.get_y()
-
     bancos_texto = empresa.get("datos_bancarios", "")
-    lineas_bancos = [l for l in str(bancos_texto).split("\n") if l.strip()]
-    num_lineas_bancos = len(lineas_bancos)
+    
+    box_h_bancos = 32
+    if not es_vacio_o_none(bancos_texto):
+        lineas_bancos = [l for l in str(bancos_texto).split("\n") if l.strip()]
+        box_h_bancos = max(32, (len(lineas_bancos) * 5) + 8)
 
-    box_h_bancos = max(32, (num_lineas_bancos * 5) + 8)
-
-    if bancos_texto:
         pdf.set_fill_color(248, 250, 252)
         pdf.set_draw_color(226, 232, 240)
         pdf.rect(15, y_seccion4, 102, box_h_bancos, style="FD")
@@ -277,19 +320,20 @@ def crear_pdf_cotizacion(
     pdf.set_fill_color(26, 54, 93)
     pdf.set_text_color(255, 255, 255)
     pdf.set_font("Helvetica", "B", 10.5)
-    pdf.cell(32, 8.5, "  TOTAL:", fill=True)
-    pdf.cell(40, 8.5, f"{total:,.2f}  ", fill=True, align="R", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(32, 8.5, " TOTAL:", fill=True)
+    pdf.cell(40, 8.5, f"{total:,.2f} ", fill=True, align="R", new_x="LMARGIN", new_y="NEXT")
 
     y_pos_siguiente = max(y_seccion4 + box_h_bancos + 5, pdf.get_y() + 6)
     pdf.set_y(y_pos_siguiente)
 
     # 5. Módulo Condiciones Comerciales
-    if condiciones_pago or (incoterm and incoterm != "N/A") or validez:
+    tiene_cond = not es_vacio_o_none(condiciones_pago) or (not es_vacio_o_none(incoterm) and incoterm != "N/A") or not es_vacio_o_none(validez)
+    if tiene_cond:
         y_cond = pdf.get_y()
         lineas_cond = 0
-        if condiciones_pago: lineas_cond += 1
-        if incoterm and incoterm != "N/A": lineas_cond += 1
-        if validez: lineas_cond += 1
+        if not es_vacio_o_none(condiciones_pago): lineas_cond += 1
+        if not es_vacio_o_none(incoterm) and incoterm != "N/A": lineas_cond += 1
+        if not es_vacio_o_none(validez): lineas_cond += 1
         
         box_h_cond = (lineas_cond * 5) + 8
         
@@ -303,17 +347,17 @@ def crear_pdf_cotizacion(
         pdf.cell(174, 4, "CONDICIONES COMERCIALES / TERMS OF SALE:" if es_ingles else "CONDICIONES COMERCIALES Y DE PAGO:", new_x="LMARGIN", new_y="NEXT")
         pdf.ln(1)
         
-        if condiciones_pago:
+        if not es_vacio_o_none(condiciones_pago):
             render_texto_con_dospuntos(pdf, f"{lbl_cond_pago} {condiciones_pago}", x_start=18, max_w=174, font_size=8.5, line_h=4.5)
-        if incoterm and incoterm != "N/A":
+        if not es_vacio_o_none(incoterm) and incoterm != "N/A":
             render_texto_con_dospuntos(pdf, f"{lbl_incoterm} {incoterm}", x_start=18, max_w=174, font_size=8.5, line_h=4.5)
-        if validez:
+        if not es_vacio_o_none(validez):
             render_texto_con_dospuntos(pdf, f"{lbl_validez} {validez}", x_start=18, max_w=174, font_size=8.5, line_h=4.5)
             
         pdf.set_y(y_cond + box_h_cond + 5)
 
     # 6. Módulo Notas Complementarias
-    if notas:
+    if not es_vacio_o_none(notas):
         y_notas = pdf.get_y()
         lineas_notas_count = len([l for l in str(notas).split("\n") if l.strip()])
         box_h_notas = max(16, (lineas_notas_count * 5) + 8)
@@ -354,18 +398,25 @@ def crear_pdf_cotizacion(
 # MENÚ DE LA APLICACIÓN (STREAMLIT)
 # ==========================================
 st.sidebar.title("📌 Menú Cotizador")
-opcion = st.sidebar.radio("Selecciona un módulo:", ["1. Empresas", "2. Cotizar", "3. Historial"])
 
-with st.sidebar.expander("🔍 Verificación de Datos"):
+# Inicialización de Estados de Sesión (para Editar/Duplicar)
+if "cotiz_edit_data" not in st.session_state:
+    st.session_state["cotiz_edit_data"] = None
+if "modo_formulario" not in st.session_state:
+    st.session_state["modo_formulario"] = "crear"
+
+opcion = st.sidebar.radio("Selecciona un módulo:", ["1. Empresas", "2. Clientes", "3. Cotizar", "4. Historial"])
+
+with st.sidebar.expander("🔍 Verificación de Conexión"):
     st.write(f"**URL:** `{url}`")
-    st.write(f"**Clave empieza con:** `{key[:12]}...`")
+    st.write(f"**Clave activa:** `{key[:10]}...`")
 
 # ------------------------------------------
 # MÓDULO 1: EMPRESAS
 # ------------------------------------------
 if opcion == "1. Empresas":
     st.title("🏢 Gestión de Empresas Cotizadoras")
-    st.write("Registra o edita los datos de la empresa, su logotipo y el sello/firma.")
+    st.write("Registra o edita los datos de la empresa emisor, su logotipo y el sello/firma.")
 
     try:
         res = supabase.table("empresas").select("*").execute()
@@ -380,7 +431,7 @@ if opcion == "1. Empresas":
     empresa_sel = None
     if modo == "Editar Empresa Existente":
         if not empresas:
-            st.info("No hay empresas registradas aún. Registra una primera empresa.")
+            st.info("No hay empresas registradas aún.")
         else:
             nombres = [e["nombre"] for e in empresas]
             seleccion = st.selectbox("Selecciona la empresa a editar:", nombres)
@@ -396,11 +447,11 @@ if opcion == "1. Empresas":
     with st.form("form_empresa", clear_on_submit=False):
         nombre = st.text_input("Nombre de la Empresa *", value=nombre_val)
         rif = st.text_input("Número de RIF / Tax ID *", value=rif_val)
-        direccion = st.text_area("Dirección Fiscal", value=direccion_val)
+        direccion = st.text_area("Dirección Fiscal (Escribe 'None' u 'Omitir' para no mostrar en PDF)", value=direccion_val)
         datos_bancarios = st.text_area(
             "Datos Bancarios para Transferencias", 
             value=bancos_val, 
-            help="Escribe cada dato en su línea con dos puntos (:), ejemplo:\nBank Name: Bank of America\nAccount Number: 1234567"
+            help="Escribe cada dato con dos puntos (:), ej:\nBanco: Banesco\nCuenta: 0134..."
         )
 
         st.subheader("🖼️ Imágenes Corporativas")
@@ -410,19 +461,19 @@ if opcion == "1. Empresas":
             st.markdown("**Logotipo (Fondo Blanco)**")
             if empresa_sel and empresa_sel.get("logo_url"):
                 st.image(empresa_sel["logo_url"], width=150, caption="Logo Actual")
-            logo_file = st.file_uploader("Subir/Cambiar Logo (PNG o JPG)", type=["png", "jpg", "jpeg"], key="logo")
+            logo_file = st.file_uploader("Subir Logo (PNG/JPG)", type=["png", "jpg", "jpeg"], key="logo")
 
         with col2:
             st.markdown("**Sello Húmedo y Firma**")
             if empresa_sel and empresa_sel.get("sello_firma_url"):
-                st.image(empresa_sel["sello_firma_url"], width=150, caption="Sello/Firma Actual")
-            sello_file = st.file_uploader("Subir/Cambiar Sello y Firma (PNG o JPG)", type=["png", "jpg", "jpeg"], key="sello")
+                st.image(empresa_sel["sello_firma_url"], width=150, caption="Sello Actual")
+            sello_file = st.file_uploader("Subir Sello/Firma (PNG/JPG)", type=["png", "jpg", "jpeg"], key="sello")
 
         guardar = st.form_submit_button("💾 Guardar Empresa", use_container_width=True)
 
     if guardar:
         if not nombre or not rif:
-            st.error("El Nombre y el RIF son campos obligatorios.")
+            st.error("El Nombre y el RIF son obligatorios.")
         else:
             logo_url = empresa_sel.get("logo_url") if empresa_sel else None
             sello_url = empresa_sel.get("sello_firma_url") if empresa_sel else None
@@ -431,8 +482,7 @@ if opcion == "1. Empresas":
                 ext = logo_file.name.split(".")[-1]
                 path_logo = f"logos/{uuid.uuid4()}.{ext}"
                 supabase.storage.from_("archivos-cotizador").upload(
-                    path=path_logo, 
-                    file=logo_file.getvalue(), 
+                    path=path_logo, file=logo_file.getvalue(), 
                     file_options={"content-type": logo_file.type, "upsert": "true"}
                 )
                 logo_url = supabase.storage.from_("archivos-cotizador").get_public_url(path_logo)
@@ -441,101 +491,255 @@ if opcion == "1. Empresas":
                 ext = sello_file.name.split(".")[-1]
                 path_sello = f"sellos/{uuid.uuid4()}.{ext}"
                 supabase.storage.from_("archivos-cotizador").upload(
-                    path=path_sello, 
-                    file=sello_file.getvalue(), 
+                    path=path_sello, file=sello_file.getvalue(), 
                     file_options={"content-type": sello_file.type, "upsert": "true"}
                 )
                 sello_url = supabase.storage.from_("archivos-cotizador").get_public_url(path_sello)
 
             datos_empresa = {
-                "nombre": nombre,
-                "rif": rif,
-                "direccion": direccion,
-                "datos_bancarios": datos_bancarios,
-                "logo_url": logo_url,
-                "sello_firma_url": sello_url
+                "nombre": nombre, "rif": rif, "direccion": direccion,
+                "datos_bancarios": datos_bancarios, "logo_url": logo_url, "sello_firma_url": sello_url
             }
 
             if empresa_sel:
                 supabase.table("empresas").update(datos_empresa).eq("id", empresa_sel["id"]).execute()
-                st.success(f"¡Empresa '{nombre}' actualizada correctamente!")
+                st.success(f"¡Empresa '{nombre}' actualizada!")
             else:
                 supabase.table("empresas").insert(datos_empresa).execute()
-                st.success(f"¡Empresa '{nombre}' registrada con éxito!")
-            
+                st.success(f"¡Empresa '{nombre}' registrada!")
             st.rerun()
 
 # ------------------------------------------
-# MÓDULO 2: COTIZAR
+# MÓDULO 2: CLIENTES (NUEVO CRM)
 # ------------------------------------------
-elif opcion == "2. Cotizar":
-    st.title("📝 Generar Nueva Cotización / Factura Proforma")
-    
+elif opcion == "2. Clientes":
+    st.title("📇 Gestión de Clientes Guardados")
+    st.write("Administra tu directorio de clientes para cotizar de forma veloz.")
+
     try:
-        res = supabase.table("empresas").select("*").execute()
-        empresas = res.data
+        res_cli = supabase.table("clientes").select("*").order("nombre").execute()
+        clientes_db = res_cli.data
+    except Exception:
+        clientes_db = []
+
+    modo_cli = st.radio("Acción:", ["Registrar Nuevo Cliente", "Editar Cliente Existente"], horizontal=True)
+
+    cli_sel = None
+    if modo_cli == "Editar Cliente Existente":
+        if not clientes_db:
+            st.info("No hay clientes guardados aún.")
+        else:
+            nombres_cli = [c["nombre"] for c in clientes_db]
+            sel_nombre = st.selectbox("Selecciona cliente a editar:", nombres_cli)
+            cli_sel = next(c for c in clientes_db if c["nombre"] == sel_nombre)
+
+    st.divider()
+
+    with st.form("form_cliente"):
+        cli_nombre_val = cli_sel["nombre"] if cli_sel else ""
+        cli_rif_val = cli_sel["rif"] if cli_sel else ""
+        cli_dir_val = cli_sel["direccion"] if cli_sel else ""
+
+        nombre_c = st.text_input("Nombre / Razón Social del Cliente *", value=cli_nombre_val)
+        rif_c = st.text_input("RIF / Tax ID del Cliente", value=cli_rif_val)
+        dir_c = st.text_area("Dirección del Cliente", value=cli_dir_val)
+
+        guardar_cli = st.form_submit_button("💾 Guardar Cliente", use_container_width=True)
+
+    if guardar_cli:
+        if not nombre_c:
+            st.error("El nombre del cliente es obligatorio.")
+        else:
+            payload_cli = {"nombre": nombre_c, "rif": rif_c, "direccion": dir_c}
+            if cli_sel:
+                supabase.table("clientes").update(payload_cli).eq("id", cli_sel["id"]).execute()
+                st.success("¡Cliente actualizado!")
+            else:
+                supabase.table("clientes").insert(payload_cli).execute()
+                st.success("¡Cliente registrado con éxito!")
+            st.rerun()
+
+    if clientes_db:
+        st.subheader("📋 Directorio de Clientes")
+        st.dataframe(pd.DataFrame(clientes_db)[["nombre", "rif", "direccion"]], use_container_width=True)
+
+# ------------------------------------------
+# MÓDULO 3: COTIZAR / FACTURAR
+# ------------------------------------------
+elif opcion == "3. Cotizar":
+    datos_cargados = st.session_state.get("cotiz_edit_data")
+    modo_form = st.session_state.get("modo_formulario", "crear")
+
+    if modo_form == "editar":
+        st.title("✏️ Editando Documento")
+        st.info(f"Modificando la cotización: **{datos_cargados.get('numero_cotizacion')}**")
+    elif modo_form == "duplicar":
+        st.title("📋 Duplicando Documento")
+        st.info(f"Generando una nueva cotización basada en la referencia: **{datos_cargados.get('numero_cotizacion')}**")
+    else:
+        st.title("📝 Generar Nueva Cotización / Factura")
+
+    try:
+        res_emp = supabase.table("empresas").select("*").execute()
+        empresas = res_emp.data
+        res_cli = supabase.table("clientes").select("*").order("nombre").execute()
+        clientes_db = res_cli.data
     except Exception as e:
-        st.error("Error al cargar empresas")
+        st.error("Error al conectar con la Base de Datos")
         st.stop()
-        
+
     if not empresas:
         st.warning("⚠️ Primero debes registrar al menos una Empresa en el Módulo 1.")
         st.stop()
-        
+
     nombres_emp = [e["nombre"] for e in empresas]
-    emp_seleccionada = st.selectbox("Selecciona la Empresa Emisora:", nombres_emp)
+    
+    # Pre-cargar Empresa si editamos
+    idx_emp = 0
+    if datos_cargados and "empresa_id" in datos_cargados:
+        for idx, e in enumerate(empresas):
+            if e["id"] == datos_cargados["empresa_id"]:
+                idx_emp = idx
+                break
+
+    emp_seleccionada = st.selectbox("Empresa Emisora *", nombres_emp, index=idx_emp)
     empresa = next(e for e in empresas if e["nombre"] == emp_seleccionada)
-    
+
     st.divider()
+
+    # Pre-cargar tipo de ítem
+    tipo_item_val = datos_cargados.get("tipo_item", "Producto") if datos_cargados else "Producto"
     
-    col_t1, col_t2, col_t3 = st.columns(3)
+    st.subheader("⚙️ Configuración del Documento")
+    col_t0, col_t1, col_t2, col_t3 = st.columns(4)
+    with col_t0:
+        tipo_item = st.radio("¿Qué vas a Cotizar? *", ["Producto", "Servicio"], index=0 if tipo_item_val == "Producto" else 1, horizontal=True)
     with col_t1:
-        tipo_documento = st.selectbox("Tipo de Documento *", ["Cotización", "Proforma Invoice", "Factura Comercial"])
+        doc_default = datos_cargados.get("tipo_documento", "Cotización") if datos_cargados else "Cotización"
+        tipo_documento = st.selectbox("Tipo de Documento *", ["Cotización", "Proforma Invoice", "Factura Comercial"], index=["Cotización", "Proforma Invoice", "Factura Comercial"].index(doc_default) if doc_default in ["Cotización", "Proforma Invoice", "Factura Comercial"] else 0)
     with col_t2:
-        idioma = st.selectbox("Idioma del Documento *", ["Español", "Inglés"])
+        id_default = datos_cargados.get("idioma", "Español") if datos_cargados else "Español"
+        idioma = st.selectbox("Idioma *", ["Español", "Inglés"], index=0 if id_default == "Español" else 1)
     with col_t3:
-        moneda = st.selectbox("Moneda *", ["USD ($)", "EUR (€)", "RMB (¥)"])
+        mon_default = datos_cargados.get("moneda", "USD ($)") if datos_cargados else "USD ($)"
+        moneda = st.selectbox("Moneda *", ["USD ($)", "EUR (€)", "RMB (¥)"], index=["USD ($)", "EUR (€)", "RMB (¥)"].index(mon_default) if mon_default in ["USD ($)", "EUR (€)", "RMB (¥)"] else 0)
+
+    # Selección de Cliente
+    st.subheader("👤 Datos del Cliente")
+    
+    opciones_clientes = ["➕ Escribir cliente nuevo / manual"] + [c["nombre"] for c in clientes_db]
+    cliente_sel_box = st.selectbox("Seleccionar Cliente Guardado (Opcional):", opciones_clientes)
+
+    cli_nombre_def = datos_cargados.get("cliente_nombre", "") if datos_cargados else ""
+    cli_rif_def = datos_cargados.get("cliente_rif", "") if datos_cargados else ""
+    cli_dir_def = datos_cargados.get("cliente_direccion", "") if datos_cargados else ""
+
+    if cliente_sel_box != "➕ Escribir cliente nuevo / manual":
+        c_obj = next(c for c in clientes_db if c["nombre"] == cliente_sel_box)
+        cli_nombre_def = c_obj["nombre"]
+        cli_rif_def = c_obj["rif"]
+        cli_dir_def = c_obj["direccion"]
 
     col_c1, col_c2 = st.columns(2)
     with col_c1:
-        st.subheader("👤 Datos del Cliente")
-        cliente_nombre = st.text_input("Nombre / Razón Social del Cliente *")
-        cliente_rif = st.text_input("RIF / Tax ID del Cliente")
-        cliente_dir = st.text_area("Dirección del Cliente", height=80)
+        cliente_nombre = st.text_input("Nombre / Razón Social del Cliente *", value=cli_nombre_def)
+        cliente_rif = st.text_input("RIF / Tax ID del Cliente", value=cli_rif_def)
+        cliente_dir = st.text_area("Dirección del Cliente", value=cli_dir_def, height=80)
         
+        guardar_en_bd = st.checkbox("💾 Guardar automáticamente este cliente en mi directorio", value=False)
+
     with col_c2:
-        st.subheader("⚙️ Detalles Comerciales")
-        num_cotizacion = st.text_input("Número de Documento *", value=f"COT-{datetime.now().strftime('%Y%m%d%H%M')}")
-        validez = st.text_input("Tiempo de Validez", value="15 Días")
+        st.subheader("📋 Detalle Comercial")
+        
+        # Número de cotización
+        num_def = f"COT-{datetime.now().strftime('%Y%m%d%H%M')}"
+        if datos_cargados:
+            if modo_form == "editar":
+                num_def = datos_cargados.get("numero_cotizacion", num_def)
+            elif modo_form == "duplicar":
+                num_def = f"COT-{datetime.now().strftime('%Y%m%d%H%M')}"
+
+        num_cotizacion = st.text_input("Número de Documento *", value=num_def)
+        validez = st.text_input("Tiempo de Validez", value=datos_cargados.get("validez", "15 Días") if datos_cargados else "15 Días")
         incoterm = st.selectbox(
             "Incoterm (Opcional)", 
             ["N/A", "EXW - Ex Works", "FOB - Free on Board", "FCA - Free Carrier", "CIF - Cost, Insurance & Freight", "CFR - Cost and Freight", "DDP - Delivered Duty Paid", "DAP - Delivered at Place", "CIP - Carriage and Insurance Paid to", "CPT - Carriage Paid To", "DPU - Delivered at Place Unloaded", "FAS - Free Alongside Ship"]
         )
-        condiciones_pago = st.text_input("Condiciones de Pago", value="100% Anticipado")
+        condiciones_pago = st.text_input("Condiciones de Pago", value=datos_cargados.get("condiciones_pago", "100% Anticipado") if datos_cargados else "100% Anticipado")
 
-    st.subheader("📦 Productos / Servicios")
-    df_inicial = pd.DataFrame([
-        {"Descripción": "Producto / Servicio Ejemplo", "Cantidad": 1, "Precio Unitario": 100.0}
-    ])
+    st.subheader("📦 Lista de Ítems / Precios")
     
-    df_editado = st.data_editor(
-        df_inicial,
-        num_rows="dynamic",
-        column_config={
-            "Cantidad": st.column_config.NumberColumn("Cantidad", min_value=1, step=1, default=1),
-            "Precio Unitario": st.column_config.NumberColumn("Precio Unitario", min_value=0.0, format="%.2f", default=0.0),
-        },
-        use_container_width=True
-    )
-    
-    df_editado["Subtotal"] = df_editado["Cantidad"] * df_editado["Precio Unitario"]
+    # Opciones de Unidades de Medida
+    lista_uoms = ["Unidades (Uds)", "Par", "m²", "m³ (CBM)", "Paquete (Pkt)", "Bulto", "Caja (CTN)", "Pieza (Pza)", "Set / Juego", "Metro (m)", "Kg", "Tonelada (TN)", "Litro (L)"]
+
+    # Cargar ítems anteriores o default
+    if datos_cargados and "items" in datos_cargados:
+        items_cargados = []
+        for it in datos_cargados["items"]:
+            if tipo_item == "Producto":
+                items_cargados.append({
+                    "Descripción": it.get("descripcion", ""),
+                    "Presentación / Empaque": it.get("presentacion", ""),
+                    "Unidad de Medida": it.get("uom", "Unidades (Uds)"),
+                    "Cantidad": it.get("cantidad", 1),
+                    "Precio Unitario": it.get("precio", 0.0)
+                })
+            else:
+                items_cargados.append({
+                    "Descripción": it.get("descripcion", ""),
+                    "Cantidad / Horas": it.get("cantidad", 1),
+                    "Precio Unitario": it.get("precio", 0.0)
+                })
+        df_inicial = pd.DataFrame(items_cargados)
+    else:
+        if tipo_item == "Producto":
+            df_inicial = pd.DataFrame([{
+                "Descripción": "Ej: Repuesto / Mercancía",
+                "Presentación / Empaque": "Ej: Caja x 24 pcs",
+                "Unidad de Medida": "Unidades (Uds)",
+                "Cantidad": 1,
+                "Precio Unitario": 100.0
+            }])
+        else:
+            df_inicial = pd.DataFrame([{
+                "Descripción": "Ej: Servicio de Consultoría",
+                "Cantidad / Horas": 1,
+                "Precio Unitario": 150.0
+            }])
+
+    if tipo_item == "Producto":
+        df_editado = st.data_editor(
+            df_inicial,
+            num_rows="dynamic",
+            column_config={
+                "Unidad de Medida": st.column_config.SelectboxColumn("Unidad de Medida", options=lista_uoms, default="Unidades (Uds)"),
+                "Cantidad": st.column_config.NumberColumn("Cantidad", min_value=1, step=1, default=1),
+                "Precio Unitario": st.column_config.NumberColumn("Precio Unitario", min_value=0.0, format="%.2f", default=0.0),
+            },
+            use_container_width=True
+        )
+        df_editado["Subtotal"] = df_editado["Cantidad"] * df_editado["Precio Unitario"]
+    else:
+        df_editado = st.data_editor(
+            df_inicial,
+            num_rows="dynamic",
+            column_config={
+                "Cantidad / Horas": st.column_config.NumberColumn("Cantidad / Horas", min_value=1, step=1, default=1),
+                "Precio Unitario": st.column_config.NumberColumn("Precio Unitario", min_value=0.0, format="%.2f", default=0.0),
+            },
+            use_container_width=True
+        )
+        df_editado["Subtotal"] = df_editado["Cantidad / Horas"] * df_editado["Precio Unitario"]
+
     subtotal_cotizacion = df_editado["Subtotal"].sum()
 
     st.divider()
     col_i1, col_i2 = st.columns(2)
     with col_i1:
-        aplica_iva = st.checkbox("¿Aplica Impuestos / IVA?", value=False)
-        alicuota_iva = st.number_input("Alícuota de Impuesto (%)", min_value=0.0, max_value=100.0, value=16.0, step=1.0) if aplica_iva else 0.0
+        aplica_iva_def = True if (datos_cargados and datos_cargados.get("monto_iva", 0) > 0) else False
+        aplica_iva = st.checkbox("¿Aplica Impuestos / IVA?", value=aplica_iva_def)
+        alicuota_def = datos_cargados.get("alicuota_iva", 16.0) if datos_cargados else 16.0
+        alicuota_iva = st.number_input("Alícuota de Impuesto (%)", min_value=0.0, max_value=100.0, value=alicuota_def, step=1.0) if aplica_iva else 0.0
         monto_iva = subtotal_cotizacion * (alicuota_iva / 100.0) if aplica_iva else 0.0
         total_cotizacion = subtotal_cotizacion + monto_iva
 
@@ -545,34 +749,55 @@ elif opcion == "2. Cotizar":
         st.markdown(f"### 💰 **Total:** `{moneda} {total_cotizacion:,.2f}`")
 
     with col_i2:
-        notas = st.text_area("Notas Complementarias / Observaciones", help="Aclaratorias de despacho, garantías, etc.")
+        notas_def = datos_cargados.get("notas", "") if datos_cargados else ""
+        notas = st.text_area("Notas Complementarias / Observaciones", value=notas_def, help="Escribe 'None' u 'Omitir' para no incluir este bloque")
 
     st.divider()
 
-    if st.button("📄 Generar y Guardar Documento", use_container_width=True, type="primary"):
+    txt_boton = "💾 Actualizar Documento" if modo_form == "editar" else "📄 Generar y Guardar Documento"
+    
+    if st.button(txt_boton, use_container_width=True, type="primary"):
         if not cliente_nombre or total_cotizacion <= 0:
-            st.error("Por favor ingresa el nombre del cliente y al menos un producto con precio.")
+            st.error("Por favor ingresa el nombre del cliente y al menos un ítem con valor.")
         else:
+            # Guardar cliente si seleccionó el checkbox
+            if guardar_en_bd and cliente_sel_box == "➕ Escribir cliente nuevo / manual":
+                try:
+                    supabase.table("clientes").insert({
+                        "nombre": cliente_nombre, "rif": cliente_rif, "direccion": cliente_dir
+                    }).execute()
+                except Exception:
+                    pass
+
             items_list = []
             for _, row in df_editado.iterrows():
-                items_list.append({
-                    "descripcion": row["Descripción"],
-                    "cantidad": int(row["Cantidad"]),
-                    "precio": float(row["Precio Unitario"]),
-                    "subtotal": float(row["Subtotal"])
-                })
+                if tipo_item == "Producto":
+                    items_list.append({
+                        "descripcion": row["Descripción"],
+                        "presentacion": row.get("Presentación / Empaque", ""),
+                        "uom": row.get("Unidad de Medida", "Uds"),
+                        "cantidad": int(row["Cantidad"]),
+                        "precio": float(row["Precio Unitario"]),
+                        "subtotal": float(row["Subtotal"])
+                    })
+                else:
+                    items_list.append({
+                        "descripcion": row["Descripción"],
+                        "cantidad": int(row["Cantidad / Horas"]),
+                        "precio": float(row["Precio Unitario"]),
+                        "subtotal": float(row["Subtotal"])
+                    })
                 
             pdf_bytes = crear_pdf_cotizacion(
                 empresa, cliente_nombre, cliente_rif, cliente_dir, moneda,
                 items_list, subtotal_cotizacion, monto_iva, alicuota_iva, 
                 total_cotizacion, num_cotizacion, tipo_documento, idioma, 
-                validez, incoterm, condiciones_pago, notas
+                validez, incoterm, condiciones_pago, notas, tipo_item
             )
             
             path_pdf = f"cotizaciones/{num_cotizacion}_{uuid.uuid4()}.pdf"
             supabase.storage.from_("archivos-cotizador").upload(
-                path=path_pdf, 
-                file=pdf_bytes, 
+                path=path_pdf, file=pdf_bytes, 
                 file_options={"content-type": "application/pdf", "upsert": "true"}
             )
             pdf_url = supabase.storage.from_("archivos-cotizador").get_public_url(path_pdf)
@@ -595,12 +820,22 @@ elif opcion == "2. Cotizar":
                 "incoterm": incoterm,
                 "condiciones_pago": condiciones_pago,
                 "notas": notas,
-                "pdf_url": pdf_url
+                "pdf_url": pdf_url,
+                "tipo_item": tipo_item
             }
             
             try:
-                supabase.table("cotizaciones").insert(datos_cotizacion).execute()
-                st.success("🎉 ¡Documento emitido y guardado con éxito!")
+                if modo_form == "editar" and datos_cargados:
+                    supabase.table("cotizaciones").update(datos_cotizacion).eq("id", datos_cargados["id"]).execute()
+                    st.success("🎉 ¡Documento actualizado exitosamente!")
+                else:
+                    supabase.table("cotizaciones").insert(datos_cotizacion).execute()
+                    st.success("🎉 ¡Documento emitido y guardado con éxito!")
+
+                # Limpiar estado
+                st.session_state["cotiz_edit_data"] = None
+                st.session_state["modo_formulario"] = "crear"
+
                 st.download_button(
                     label=f"⬇️ Descargar {tipo_documento} (PDF)",
                     data=pdf_bytes,
@@ -612,14 +847,19 @@ elif opcion == "2. Cotizar":
                 st.error("🚨 Error al guardar en la Base de Datos:")
                 st.write(e_db)
 
-# ------------------------------------------
-# MÓDULO 3: HISTORIAL
-# ------------------------------------------
-elif opcion == "3. Historial":
-    st.title("📚 Historial de Cotizaciones y Documentos")
-    st.write("Consulta, filtra y vuelve a descargar todas las cotizaciones emitidas.")
+    if modo_form in ["editar", "duplicar"]:
+        if st.button("❌ Cancelar edición/duplicación"):
+            st.session_state["cotiz_edit_data"] = None
+            st.session_state["modo_formulario"] = "crear"
+            st.rerun()
 
-    # Cargar cotizaciones y empresas desde Supabase
+# ------------------------------------------
+# MÓDULO 4: HISTORIAL
+# ------------------------------------------
+elif opcion == "4. Historial":
+    st.title("📚 Historial de Cotizaciones")
+    st.write("Consulta, edita, duplica o elimina documentos emitidos.")
+
     try:
         res_cot = supabase.table("cotizaciones").select("*").order("created_at", desc=True).execute()
         cotizaciones = res_cot.data
@@ -627,84 +867,80 @@ elif opcion == "3. Historial":
         res_emp = supabase.table("empresas").select("*").execute()
         empresas_dict = {e["id"]: e["nombre"] for e in res_emp.data}
     except Exception as e:
-        st.error("🚨 Error al consultar el historial en Supabase:")
+        st.error("🚨 Error al consultar el historial:")
         st.write(e)
         st.stop()
 
     if not cotizaciones:
-        st.info("ℹ️ Aún no se han emitido documentos. Ve al Módulo 2 para generar el primero.")
+        st.info("ℹ️ Aún no se han emitido documentos.")
     else:
-        # Filtros y Búsqueda
         col_f1, col_f2 = st.columns([2, 1])
         with col_f1:
-            busqueda = st.text_input("🔍 Buscar por Cliente o Número de Documento:", placeholder="Ej: Angel, COT-2026...")
+            busqueda = st.text_input("🔍 Buscar cliente o número:", placeholder="Ej: Angel, COT-2026...")
         with col_f2:
             tipo_filtro = st.selectbox("Filtrar por Tipo:", ["Todos", "Cotización", "Proforma Invoice", "Factura Comercial"])
 
-        # Aplicar Filtros
         cotizaciones_filtradas = cotizaciones
         if busqueda:
-            busq_lower = busqueda.lower()
+            b_low = busqueda.lower()
             cotizaciones_filtradas = [
                 q for q in cotizaciones_filtradas 
-                if busq_lower in str(q.get("cliente_nombre", "")).lower() or busq_lower in str(q.get("numero_cotizacion", "")).lower()
+                if b_low in str(q.get("cliente_nombre", "")).lower() or b_low in str(q.get("numero_cotizacion", "")).lower()
             ]
         if tipo_filtro != "Todos":
             cotizaciones_filtradas = [q for q in cotizaciones_filtradas if q.get("tipo_documento") == tipo_filtro]
 
-        st.caption(f"Mostrando **{len(cotizaciones_filtradas)}** de **{len(cotizaciones)}** documentos guardados.")
+        st.caption(f"Mostrando **{len(cotizaciones_filtradas)}** de **{len(cotizaciones)}** documentos.")
         st.divider()
 
-        # Renderizar cada documento en una tarjeta desplegable
         for q in cotizaciones_filtradas:
-            empresa_nombre = empresas_dict.get(q.get("empresa_id"), "Empresa Emisora")
+            emp_nom = empresas_dict.get(q.get("empresa_id"), "Empresa Emisora")
             fecha_str = str(q.get("created_at", ""))[:10]
             
-            # Formato de título de la tarjeta
             titulo_card = f"📄 {q.get('numero_cotizacion', 'DOC')} | {q.get('cliente_nombre')} | {q.get('moneda', '')} {q.get('total', 0):,.2f}"
             
             with st.expander(titulo_card):
                 col_d1, col_d2, col_d3 = st.columns([2, 2, 1])
                 
                 with col_d1:
-                    st.markdown(f"**Tipo:** `{q.get('tipo_documento', 'Cotización')}`")
-                    st.write(f"**Emisor:** {empresa_nombre}")
+                    st.markdown(f"**Tipo:** `{q.get('tipo_documento', 'Cotización')}` ({q.get('tipo_item', 'Producto')})")
+                    st.write(f"**Emisor:** {emp_nom}")
                     st.write(f"**Cliente:** {q.get('cliente_nombre')}")
-                    st.write(f"**RIF/Tax ID:** {q.get('cliente_rif', 'N/A')}")
                     
                 with col_d2:
                     st.write(f"**Fecha:** {fecha_str}")
                     st.write(f"**Idioma:** {q.get('idioma', 'Español')}")
                     st.write(f"**Validez:** {q.get('validez', 'N/A')}")
-                    st.write(f"**Incoterm:** {q.get('incoterm', 'N/A')}")
-                    st.write(f"**Condiciones:** {q.get('condiciones_pago', 'N/A')}")
 
                 with col_d3:
                     st.markdown(f"### **Total:**\n`{q.get('moneda', '')} {q.get('total', 0):,.2f}`")
                     if q.get("pdf_url"):
-                        st.link_button("🌐 Ver / Descargar PDF", q["pdf_url"], use_container_width=True)
-                    else:
-                        st.caption("PDF no disponible")
+                        st.link_button("🌐 Ver PDF", q["pdf_url"], use_container_width=True)
 
-                # Detalle de la Tabla de Productos
                 if q.get("items"):
-                    st.markdown("**📦 Detalle de Productos / Servicios:**")
-                    df_items = pd.DataFrame(q["items"])
-                    df_items = df_items.rename(columns={
-                        "descripcion": "Descripción",
-                        "cantidad": "Cantidad",
-                        "precio": "Precio Unitario",
-                        "subtotal": "Subtotal"
-                    })
-                    st.dataframe(df_items, use_container_width=True, hide_index=True)
+                    st.markdown("**📦 Productos / Servicios:**")
+                    st.dataframe(pd.DataFrame(q["items"]), use_container_width=True, hide_index=True)
 
-                if q.get("notas"):
-                    st.info(f"**Notas:** {q['notas']}")
+                st.divider()
+                
+                # BOTONES DE ACCIÓN: EDITAR / DUPLICAR / ELIMINAR
+                col_b1, col_b2, col_b3 = st.columns(3)
+                with col_b1:
+                    if st.button("✏️ Editar Documento", key=f"edit_{q['id']}", use_container_width=True):
+                        st.session_state["cotiz_edit_data"] = q
+                        st.session_state["modo_formulario"] = "editar"
+                        st.info("Cargando datos... ve a la pestaña '3. Cotizar' en el menú.")
+                        st.rerun()
 
-                # Botón para eliminar registro
-                col_del, _ = st.columns([1, 4])
-                with col_del:
-                    if st.button("🗑️ Eliminar Documento", key=f"del_{q['id']}", type="secondary"):
+                with col_b2:
+                    if st.button("📋 Duplicar Cotización", key=f"dup_{q['id']}", use_container_width=True):
+                        st.session_state["cotiz_edit_data"] = q
+                        st.session_state["modo_formulario"] = "duplicar"
+                        st.info("Duplicando datos... ve a la pestaña '3. Cotizar' en el menú.")
+                        st.rerun()
+
+                with col_b3:
+                    if st.button("🗑️ Eliminar", key=f"del_{q['id']}", type="secondary", use_container_width=True):
                         try:
                             supabase.table("cotizaciones").delete().eq("id", q["id"]).execute()
                             st.success(f"Documento {q['numero_cotizacion']} eliminado.")
