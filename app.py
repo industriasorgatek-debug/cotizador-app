@@ -23,6 +23,26 @@ except Exception as e:
     st.stop()
 
 
+# Función para limpiar caracteres especiales incompatibles con PDF (Euro, Yen, etc.)
+def limpiar_texto(texto):
+    if texto is None:
+        return ""
+    texto = str(texto)
+    reemplazos = {
+        "€": "EUR",
+        "¥": "RMB",
+        "–": "-",
+        "—": "-",
+        "“": '"',
+        "”": '"',
+        "’": "'",
+        "…": "..."
+    }
+    for origen, destino in reemplazos.items():
+        texto = texto.replace(origen, destino)
+    return texto.encode("latin-1", "replace").decode("latin-1")
+
+
 # Función auxiliar para descargar imágenes de URL para el PDF
 def obtener_bytes_imagen(url_img):
     if not url_img:
@@ -47,7 +67,6 @@ def crear_pdf_cotizacion(empresa, cliente_nombre, cliente_rif, cliente_dir, mone
     # ------------------------------------
     # 1. ENCABEZADO Y LOGO
     # ------------------------------------
-    # Descargar imágenes
     logo_bytes = obtener_bytes_imagen(empresa.get("logo_url"))
     sello_bytes = obtener_bytes_imagen(empresa.get("sello_firma_url"))
 
@@ -57,22 +76,22 @@ def crear_pdf_cotizacion(empresa, cliente_nombre, cliente_rif, cliente_dir, mone
             pdf.image(logo_bytes, x=15, y=14, w=45)
         except Exception:
             pdf.set_font("Helvetica", "B", 16)
-            pdf.cell(90, 10, empresa['nombre'][:25], ln=False)
+            pdf.cell(90, 10, limpiar_texto(empresa['nombre'])[:25], ln=False)
     else:
         pdf.set_font("Helvetica", "B", 16)
         pdf.set_text_color(26, 54, 93) # Azul Marino
-        pdf.cell(90, 10, empresa['nombre'][:30], ln=False)
+        pdf.cell(90, 10, limpiar_texto(empresa['nombre'])[:30], ln=False)
 
     # Título del Documento a la derecha
     pdf.set_xy(110, 14)
     pdf.set_font("Helvetica", "B", 18)
-    pdf.set_text_color(26, 54, 93) # Azul Marino Principal
-    pdf.cell(85, 8, "COTIZACIÓN", align="R", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(26, 54, 93)
+    pdf.cell(85, 8, "COTIZACION", align="R", new_x="LMARGIN", new_y="NEXT")
     
     pdf.set_x(110)
     pdf.set_font("Helvetica", "B", 11)
-    pdf.set_text_color(100, 116, 139) # Gris Secundario
-    pdf.cell(85, 5, f"N°: {num_cotizacion}", align="R", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(100, 116, 139)
+    pdf.cell(85, 5, limpiar_texto(f"N°: {num_cotizacion}"), align="R", new_x="LMARGIN", new_y="NEXT")
     
     pdf.set_x(110)
     pdf.set_font("Helvetica", "", 10)
@@ -92,7 +111,7 @@ def crear_pdf_cotizacion(empresa, cliente_nombre, cliente_rif, cliente_dir, mone
     y_bloque = pdf.get_y()
     
     # Caja Emisor (Izquierda)
-    pdf.set_fill_color(248, 250, 252) # Gris ultra claro
+    pdf.set_fill_color(248, 250, 252)
     pdf.set_draw_color(226, 232, 240)
     pdf.rect(15, y_bloque, 87, 34, style="FD")
     
@@ -104,15 +123,15 @@ def crear_pdf_cotizacion(empresa, cliente_nombre, cliente_rif, cliente_dir, mone
     pdf.set_x(18)
     pdf.set_font("Helvetica", "B", 10)
     pdf.set_text_color(30, 41, 59)
-    pdf.cell(80, 5, str(empresa['nombre'])[:38], new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(80, 5, limpiar_texto(empresa['nombre'])[:38], new_x="LMARGIN", new_y="NEXT")
     
     pdf.set_x(18)
     pdf.set_font("Helvetica", "", 8.5)
     pdf.set_text_color(71, 85, 105)
-    pdf.cell(80, 4, f"RIF/Tax ID: {empresa['rif']}", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(80, 4, limpiar_texto(f"RIF/Tax ID: {empresa['rif']}"), new_x="LMARGIN", new_y="NEXT")
     
     pdf.set_x(18)
-    pdf.multi_cell(80, 4, f"Dir: {str(empresa['direccion'])[:80]}")
+    pdf.multi_cell(80, 4, limpiar_texto(f"Dir: {empresa['direccion']}")[:80])
 
     # Caja Cliente (Derecha)
     pdf.rect(108, y_bloque, 87, 34, style="FD")
@@ -125,15 +144,15 @@ def crear_pdf_cotizacion(empresa, cliente_nombre, cliente_rif, cliente_dir, mone
     pdf.set_x(111)
     pdf.set_font("Helvetica", "B", 10)
     pdf.set_text_color(30, 41, 59)
-    pdf.cell(80, 5, str(cliente_nombre)[:38], new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(80, 5, limpiar_texto(cliente_nombre)[:38], new_x="LMARGIN", new_y="NEXT")
     
     pdf.set_x(111)
     pdf.set_font("Helvetica", "", 8.5)
     pdf.set_text_color(71, 85, 105)
-    pdf.cell(80, 4, f"RIF/Tax ID: {cliente_rif if cliente_rif else 'N/A'}", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(80, 4, limpiar_texto(f"RIF/Tax ID: {cliente_rif if cliente_rif else 'N/A'}"), new_x="LMARGIN", new_y="NEXT")
     
     pdf.set_x(111)
-    pdf.multi_cell(80, 4, f"Dir: {str(cliente_dir if cliente_dir else 'N/A')[:80]}")
+    pdf.multi_cell(80, 4, limpiar_texto(f"Dir: {cliente_dir if cliente_dir else 'N/A'}")[:80])
 
     pdf.set_y(y_bloque + 38)
 
@@ -141,11 +160,11 @@ def crear_pdf_cotizacion(empresa, cliente_nombre, cliente_rif, cliente_dir, mone
     # 3. TABLA DE PRODUCTOS Y SERVICIOS
     # ------------------------------------
     pdf.set_font("Helvetica", "B", 9)
-    pdf.set_fill_color(26, 54, 93) # Encabezado Azul Marino
-    pdf.set_text_color(255, 255, 255) # Texto Blanco
+    pdf.set_fill_color(26, 54, 93)
+    pdf.set_text_color(255, 255, 255)
     pdf.set_draw_color(26, 54, 93)
 
-    pdf.cell(95, 8, "  Descripción del Producto / Servicio", border=1, fill=True)
+    pdf.cell(95, 8, "  Descripcion del Producto / Servicio", border=1, fill=True)
     pdf.cell(20, 8, "Cant.", border=1, fill=True, align="C")
     pdf.cell(30, 8, "P. Unitario", border=1, fill=True, align="R")
     pdf.cell(35, 8, "Subtotal  ", border=1, fill=True, align="R", new_x="LMARGIN", new_y="NEXT")
@@ -159,7 +178,7 @@ def crear_pdf_cotizacion(empresa, cliente_nombre, cliente_rif, cliente_dir, mone
     for item in items:
         pdf.set_fill_color(241, 245, 249) if fill else pdf.set_fill_color(255, 255, 255)
         
-        pdf.cell(95, 7, f"  {str(item['descripcion'])[:48]}", border="LRTB", fill=fill)
+        pdf.cell(95, 7, f"  {limpiar_texto(item['descripcion'])[:48]}", border="LRTB", fill=fill)
         pdf.cell(20, 7, str(item['cantidad']), border="LRTB", align="C", fill=fill)
         pdf.cell(30, 7, f"{item['precio']:,.2f}", border="LRTB", align="R", fill=fill)
         pdf.cell(35, 7, f"{item['subtotal']:,.2f}  ", border="LRTB", align="R", fill=fill, new_x="LMARGIN", new_y="NEXT")
@@ -186,14 +205,14 @@ def crear_pdf_cotizacion(empresa, cliente_nombre, cliente_rif, cliente_dir, mone
         pdf.set_x(18)
         pdf.set_font("Helvetica", "", 7.5)
         pdf.set_text_color(71, 85, 105)
-        pdf.multi_cell(98, 3.5, str(empresa['datos_bancarios'])[:220])
+        pdf.multi_cell(98, 3.5, limpiar_texto(empresa['datos_bancarios'])[:220])
 
     # Caja Resumen del Total (Derecha)
     pdf.set_xy(125, y_totales)
     pdf.set_font("Helvetica", "B", 10)
     pdf.set_text_color(71, 85, 105)
     pdf.cell(30, 7, "Moneda:", align="L")
-    pdf.cell(40, 7, str(moneda), align="R", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(40, 7, limpiar_texto(moneda), align="R", new_x="LMARGIN", new_y="NEXT")
     
     pdf.set_x(125)
     pdf.cell(30, 7, "Subtotal:", align="L")
@@ -201,7 +220,7 @@ def crear_pdf_cotizacion(empresa, cliente_nombre, cliente_rif, cliente_dir, mone
 
     # Destacado del Total
     pdf.set_x(125)
-    pdf.set_fill_color(26, 54, 93) # Azul Marino
+    pdf.set_fill_color(26, 54, 93)
     pdf.set_text_color(255, 255, 255)
     pdf.set_font("Helvetica", "B", 11)
     pdf.cell(30, 9, "  TOTAL:", fill=True)
