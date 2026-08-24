@@ -60,7 +60,6 @@ def render_texto_con_dospuntos(pdf, texto, x_start, max_w, font_size=8.5, line_h
             pdf.set_font("Helvetica", "B", font_size)
             w_clave = pdf.get_string_width(limpiar_texto(clave)) + 1.5
             
-            # Si la clave es muy larga para la línea, hacer multi_cell
             if w_clave > (max_w - 10):
                 pdf.multi_cell(max_w, line_h, limpiar_texto(linea))
             else:
@@ -100,7 +99,6 @@ def crear_pdf_cotizacion(
     
     es_ingles = (idioma == "Inglés")
     
-    # Títulos principales según tipo e idioma
     if tipo_documento == "Proforma Invoice":
         titulo_doc = "PROFORMA INVOICE"
     elif tipo_documento == "Factura Comercial":
@@ -123,9 +121,7 @@ def crear_pdf_cotizacion(
     lbl_notas = "REMARKS / COMPLEMENTARY NOTES:" if es_ingles else "NOTAS COMPLEMENTARIAS / OBSERVACIONES:"
     lbl_firma = "Authorized Signature / Stamp" if es_ingles else "Firma / Sello Autorizado"
 
-    # ------------------------------------
-    # 1. ENCABEZADO Y LOGO
-    # ------------------------------------
+    # 1. Encabezado y Logo
     logo_bytes = obtener_bytes_imagen(empresa.get("logo_url"))
     sello_bytes = obtener_bytes_imagen(empresa.get("sello_firma_url"))
 
@@ -160,18 +156,14 @@ def crear_pdf_cotizacion(
 
     pdf.ln(4)
     
-    # Línea Divisoria
     pdf.set_draw_color(26, 54, 93)
     pdf.set_line_width(0.8)
     pdf.line(15, 42, 195, 42)
     pdf.ln(4)
 
-    # ------------------------------------
-    # 2. BLOQUE EMISOR Y CLIENTE
-    # ------------------------------------
+    # 2. Bloque Emisor y Cliente
     y_bloque = pdf.get_y()
     
-    # Caja Emisor
     pdf.set_fill_color(248, 250, 252)
     pdf.set_draw_color(226, 232, 240)
     pdf.rect(15, y_bloque, 87, 34, style="FD")
@@ -194,7 +186,6 @@ def crear_pdf_cotizacion(
     pdf.set_x(18)
     pdf.multi_cell(80, 3.8, limpiar_texto(f"Dir: {empresa['direccion']}")[:80])
 
-    # Caja Cliente
     pdf.rect(108, y_bloque, 87, 34, style="FD")
     
     pdf.set_xy(111, y_bloque + 3)
@@ -217,9 +208,7 @@ def crear_pdf_cotizacion(
 
     pdf.set_y(y_bloque + 38)
 
-    # ------------------------------------
-    # 3. TABLA DE PRODUCTOS Y SERVICIOS
-    # ------------------------------------
+    # 3. Tabla de Productos
     pdf.set_font("Helvetica", "B", 9)
     pdf.set_fill_color(26, 54, 93)
     pdf.set_text_color(255, 255, 255)
@@ -245,17 +234,13 @@ def crear_pdf_cotizacion(
 
     pdf.ln(5)
 
-    # ------------------------------------
-    # 4. MÓDULO BANCARIO Y TOTALES
-    # ------------------------------------
+    # 4. Módulo Bancario y Totales
     y_seccion4 = pdf.get_y()
 
-    # --- 4A. MÓDULO EXCLUSIVO DE DATOS BANCARIOS (Izquierda) ---
     bancos_texto = empresa.get("datos_bancarios", "")
     lineas_bancos = [l for l in str(bancos_texto).split("\n") if l.strip()]
     num_lineas_bancos = len(lineas_bancos)
 
-    # Cálculo dinámico de altura para que la caja contenga TODO holgadamente
     box_h_bancos = max(32, (num_lineas_bancos * 5) + 8)
 
     if bancos_texto:
@@ -269,10 +254,8 @@ def crear_pdf_cotizacion(
         pdf.cell(96, 4, lbl_bancos, new_x="LMARGIN", new_y="NEXT")
         pdf.ln(1)
         
-        # Renderizado con letra más grande (8.5pt) y negrita antes de ':'
         render_texto_con_dospuntos(pdf, bancos_texto, x_start=18, max_w=96, font_size=8.5, line_h=4.8)
 
-    # --- 4B. MÓDULO RESUMEN DE TOTALES (Derecha) ---
     pdf.set_xy(123, y_seccion4)
     pdf.set_font("Helvetica", "B", 9)
     pdf.set_text_color(71, 85, 105)
@@ -290,7 +273,6 @@ def crear_pdf_cotizacion(
         pdf.cell(32, 6, lbl_tax, align="L")
         pdf.cell(40, 6, f"{monto_iva:,.2f}", align="R", new_x="LMARGIN", new_y="NEXT")
 
-    # Destacado del Total
     pdf.set_x(123)
     pdf.set_fill_color(26, 54, 93)
     pdf.set_text_color(255, 255, 255)
@@ -298,16 +280,12 @@ def crear_pdf_cotizacion(
     pdf.cell(32, 8.5, "  TOTAL:", fill=True)
     pdf.cell(40, 8.5, f"{total:,.2f}  ", fill=True, align="R", new_x="LMARGIN", new_y="NEXT")
 
-    # Definir posición Y para los siguientes módulos
     y_pos_siguiente = max(y_seccion4 + box_h_bancos + 5, pdf.get_y() + 6)
     pdf.set_y(y_pos_siguiente)
 
-    # ------------------------------------
-    # 5. MÓDULO EXCLUSIVO DE CONDICIONES COMERCIALES
-    # ------------------------------------
+    # 5. Módulo Condiciones Comerciales
     if condiciones_pago or (incoterm and incoterm != "N/A") or validez:
         y_cond = pdf.get_y()
-        
         lineas_cond = 0
         if condiciones_pago: lineas_cond += 1
         if incoterm and incoterm != "N/A": lineas_cond += 1
@@ -334,9 +312,7 @@ def crear_pdf_cotizacion(
             
         pdf.set_y(y_cond + box_h_cond + 5)
 
-    # ------------------------------------
-    # 6. MÓDULO EXCLUSIVO DE NOTAS COMPLEMENTARIAS
-    # ------------------------------------
+    # 6. Módulo Notas Complementarias
     if notas:
         y_notas = pdf.get_y()
         lineas_notas_count = len([l for l in str(notas).split("\n") if l.strip()])
@@ -355,9 +331,7 @@ def crear_pdf_cotizacion(
         render_texto_con_dospuntos(pdf, notas, x_start=18, max_w=174, font_size=8.5, line_h=4.5)
         pdf.set_y(y_notas + box_h_notas + 5)
 
-    # ------------------------------------
-    # 7. SELLO Y FIRMA HÚMEDA
-    # ------------------------------------
+    # 7. Sello y Firma
     y_final = pdf.get_y() + 2
     if sello_bytes:
         try:
@@ -514,7 +488,6 @@ elif opcion == "2. Cotizar":
     
     st.divider()
     
-    # 1. Configuración Principal del Documento
     col_t1, col_t2, col_t3 = st.columns(3)
     with col_t1:
         tipo_documento = st.selectbox("Tipo de Documento *", ["Cotización", "Proforma Invoice", "Factura Comercial"])
@@ -555,7 +528,6 @@ elif opcion == "2. Cotizar":
         use_container_width=True
     )
     
-    # Cálculos
     df_editado["Subtotal"] = df_editado["Cantidad"] * df_editado["Precio Unitario"]
     subtotal_cotizacion = df_editado["Subtotal"].sum()
 
@@ -644,5 +616,98 @@ elif opcion == "2. Cotizar":
 # MÓDULO 3: HISTORIAL
 # ------------------------------------------
 elif opcion == "3. Historial":
-    st.title("📚 Historial de Cotizaciones")
-    st.info("Próximamente: Lista de cotizaciones emitidas y descargas.")
+    st.title("📚 Historial de Cotizaciones y Documentos")
+    st.write("Consulta, filtra y vuelve a descargar todas las cotizaciones emitidas.")
+
+    # Cargar cotizaciones y empresas desde Supabase
+    try:
+        res_cot = supabase.table("cotizaciones").select("*").order("created_at", desc=True).execute()
+        cotizaciones = res_cot.data
+
+        res_emp = supabase.table("empresas").select("*").execute()
+        empresas_dict = {e["id"]: e["nombre"] for e in res_emp.data}
+    except Exception as e:
+        st.error("🚨 Error al consultar el historial en Supabase:")
+        st.write(e)
+        st.stop()
+
+    if not cotizaciones:
+        st.info("ℹ️ Aún no se han emitido documentos. Ve al Módulo 2 para generar el primero.")
+    else:
+        # Filtros y Búsqueda
+        col_f1, col_f2 = st.columns([2, 1])
+        with col_f1:
+            busqueda = st.text_input("🔍 Buscar por Cliente o Número de Documento:", placeholder="Ej: Angel, COT-2026...")
+        with col_f2:
+            tipo_filtro = st.selectbox("Filtrar por Tipo:", ["Todos", "Cotización", "Proforma Invoice", "Factura Comercial"])
+
+        # Aplicar Filtros
+        cotizaciones_filtradas = cotizaciones
+        if busqueda:
+            busq_lower = busqueda.lower()
+            cotizaciones_filtradas = [
+                q for q in cotizaciones_filtradas 
+                if busq_lower in str(q.get("cliente_nombre", "")).lower() or busq_lower in str(q.get("numero_cotizacion", "")).lower()
+            ]
+        if tipo_filtro != "Todos":
+            cotizaciones_filtradas = [q for q in cotizaciones_filtradas if q.get("tipo_documento") == tipo_filtro]
+
+        st.caption(f"Mostrando **{len(cotizaciones_filtradas)}** de **{len(cotizaciones)}** documentos guardados.")
+        st.divider()
+
+        # Renderizar cada documento en una tarjeta desplegable
+        for q in cotizaciones_filtradas:
+            empresa_nombre = empresas_dict.get(q.get("empresa_id"), "Empresa Emisora")
+            fecha_str = str(q.get("created_at", ""))[:10]
+            
+            # Formato de título de la tarjeta
+            titulo_card = f"📄 {q.get('numero_cotizacion', 'DOC')} | {q.get('cliente_nombre')} | {q.get('moneda', '')} {q.get('total', 0):,.2f}"
+            
+            with st.expander(titulo_card):
+                col_d1, col_d2, col_d3 = st.columns([2, 2, 1])
+                
+                with col_d1:
+                    st.markdown(f"**Tipo:** `{q.get('tipo_documento', 'Cotización')}`")
+                    st.write(f"**Emisor:** {empresa_nombre}")
+                    st.write(f"**Cliente:** {q.get('cliente_nombre')}")
+                    st.write(f"**RIF/Tax ID:** {q.get('cliente_rif', 'N/A')}")
+                    
+                with col_d2:
+                    st.write(f"**Fecha:** {fecha_str}")
+                    st.write(f"**Idioma:** {q.get('idioma', 'Español')}")
+                    st.write(f"**Validez:** {q.get('validez', 'N/A')}")
+                    st.write(f"**Incoterm:** {q.get('incoterm', 'N/A')}")
+                    st.write(f"**Condiciones:** {q.get('condiciones_pago', 'N/A')}")
+
+                with col_d3:
+                    st.markdown(f"### **Total:**\n`{q.get('moneda', '')} {q.get('total', 0):,.2f}`")
+                    if q.get("pdf_url"):
+                        st.link_button("🌐 Ver / Descargar PDF", q["pdf_url"], use_container_width=True)
+                    else:
+                        st.caption("PDF no disponible")
+
+                # Detalle de la Tabla de Productos
+                if q.get("items"):
+                    st.markdown("**📦 Detalle de Productos / Servicios:**")
+                    df_items = pd.DataFrame(q["items"])
+                    df_items = df_items.rename(columns={
+                        "descripcion": "Descripción",
+                        "cantidad": "Cantidad",
+                        "precio": "Precio Unitario",
+                        "subtotal": "Subtotal"
+                    })
+                    st.dataframe(df_items, use_container_width=True, hide_index=True)
+
+                if q.get("notas"):
+                    st.info(f"**Notas:** {q['notas']}")
+
+                # Botón para eliminar registro
+                col_del, _ = st.columns([1, 4])
+                with col_del:
+                    if st.button("🗑️ Eliminar Documento", key=f"del_{q['id']}", type="secondary"):
+                        try:
+                            supabase.table("cotizaciones").delete().eq("id", q["id"]).execute()
+                            st.success(f"Documento {q['numero_cotizacion']} eliminado.")
+                            st.rerun()
+                        except Exception as e_del:
+                            st.error(f"Error al eliminar: {e_del}")
