@@ -288,16 +288,6 @@ elif opcion == "2. Cotizar":
                 "pdf_url": pdf_url
             }
             
-            supabase.table("cotizaciones").insert(datos_cotizacion).execute()
-            
-            st.success("🎉 ¡Cotización generada y guardada con éxito!")
-            st.download_button(
-                label="⬇️ Descargar Cotización en PDF",
-                data=pdf_bytes,
-                file_name=f"{num_cotizacion}.pdf",
-                mime="application/pdf",
-                use_container_width=True
-            )
 # GUARDADO SEGURO EN SUPABASE
             try:
                 supabase.table("cotizaciones").insert(datos_cotizacion).execute()
@@ -312,6 +302,7 @@ elif opcion == "2. Cotizar":
             except Exception as e_db:
                 st.error("🚨 Error al guardar la cotización en Supabase:")
                 st.write(e_db)
+
 # ==========================================
 # MÓDULO 3: HISTORIAL DE COTIZACIONES
 # ==========================================
