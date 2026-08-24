@@ -97,14 +97,22 @@ if opcion == "1. Empresas":
             if logo_file:
                 ext = logo_file.name.split(".")[-1]
                 path_logo = f"logos/{uuid.uuid4()}.{ext}"
-                supabase.storage.from_("archivos-cotizador").upload(path_logo, logo_file.getvalue(), {"content-type": logo_file.type})
+                supabase.storage.from_("archivos-cotizador").upload(
+                    path=path_logo, 
+                    file=logo_file.getvalue(), 
+                    file_options={"content-type": logo_file.type, "upsert": "true"}
+                )
                 logo_url = supabase.storage.from_("archivos-cotizador").get_public_url(path_logo)
 
             # Subir Sello/Firma a Supabase Storage
             if sello_file:
                 ext = sello_file.name.split(".")[-1]
                 path_sello = f"sellos/{uuid.uuid4()}.{ext}"
-                supabase.storage.from_("archivos-cotizador").upload(path_sello, sello_file.getvalue(), {"content-type": sello_file.type})
+                supabase.storage.from_("archivos-cotizador").upload(
+                    path=path_sello, 
+                    file=sello_file.getvalue(), 
+                    file_options={"content-type": sello_file.type, "upsert": "true"}
+                )
                 sello_url = supabase.storage.from_("archivos-cotizador").get_public_url(path_sello)
 
             datos_empresa = {
