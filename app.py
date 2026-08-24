@@ -1,3 +1,6 @@
+import streamlit as st
+from supabase import create_client, Client
+import uuid
 import pandas as pd
 from fpdf import FPDF
 import io
@@ -6,7 +9,7 @@ from datetime import datetime
 # Configuración de la página
 st.set_page_config(page_title="Cotizador Online", page_icon="📄", layout="wide")
 
-# Lectura directa de Secrets SIN memoria caché (para forzar lectura fresca)
+# Lectura directa de Secrets SIN memoria caché
 try:
     url = st.secrets["SUPABASE_URL"].strip().rstrip('/')
     if url.endswith("/rest/v1"):
@@ -19,6 +22,65 @@ except Exception as e:
     st.write(e)
     st.stop()
 
+# Función para generar el PDF en memoria
+def crear_pdf_cotizacion(empresa, cliente_nombre, cliente_rif, cliente_dir, moneda, items, subtotal, total, num_cotizacion):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Helvetica", size=12)
+    
+    # Encabezado
+    pdf.set_font("Helvetica", "B", 16)
+    pdf.cell(0, 10, f"COTIZACIÓN N° {num_cotizacion}", align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(5)
+    
+    # Datos Emisor
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.cell(0, 6, f"EMISOR: {empresa['nombre']}", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", size=10)
+    pdf.cell(0, 5, f"RIF/Tax ID: {empresa['rif']}", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 5, f"Dirección: {empresa['direccion']}", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(5)
+    
+    # Datos Cliente
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.cell(0, 6, f"CLIENTE: {cliente_nombre}", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", size=10)
+    pdf.cell(0, 5, f"RIF/Tax ID: {cliente_rif}", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 5, f"Dirección: {cliente_dir}", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 5, f"Moneda de Cotización: {moneda}", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(8)
+    
+    # Tabla de Productos
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.cell(90, 7, "Descripción", border=1)
+    pdf.cell(25, 7, "Cant.", border=1, align="C")
+    pdf.cell(35, 7, "P. Unitario", border=1, align="R")
+    pdf.cell(40, 7, "Subtotal", border=1, align="R", new_x="LMARGIN", new_y="NEXT")
+    
+    pdf.set_font("Helvetica", size=9)
+    for item in items:
+        pdf.cell(90, 6, str(item['descripcion'])[:45], border=1)
+        pdf.cell(25, 6, str(item['cantidad']), border=1, align="C")
+        pdf.cell(35, 6, f"{item['precio']:.2f}", border=1, align="R")
+        pdf.cell(40, 6, f"{item['subtotal']:.2f}", border=1, align="R", new_x="LMARGIN", new_y="NEXT")
+        
+    pdf.ln(5)
+    # Totales
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.cell(150, 7, "TOTAL:", border=0, align="R")
+    pdf.cell(40, 7, f"{moneda} {total:.2f}", border=1, align="R", new_x="LMARGIN", new_y="NEXT")
+    
+    # Datos Bancarios
+    if empresa.get("datos_bancarios"):
+        pdf.ln(10)
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.cell(0, 5, "DATOS DE PAGO / BANCOS:", new_x="LMARGIN", new_y="NEXT")
+        pdf.set_font("Helvetica", size=9)
+        pdf.multi_cell(0, 5, empresa['datos_bancarios'])
+
+    return bytes(pdf.output())
+
+
 # Menú Principal
 st.sidebar.title("📌 Menú Cotizador")
 opcion = st.sidebar.radio("Selecciona un módulo:", ["1. Empresas", "2. Cotizar", "3. Historial"])
@@ -28,63 +90,7 @@ with st.sidebar.expander("🔍 Verificación de Datos"):
     st.write(f"**URL:** `{url}`")
     st.write(f"**Clave empieza con:** `{key[:12]}...`")
     st.write(f"**Longitud de Clave:** `{len(key)} caracteres`")
-# Función para crear el archivo PDF en memoria
-def crear_pdf_cotizacion(empresa, cliente_nombre, cliente_rif, cliente_dir, moneda, items, subtotal, total, num_cotizacion):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Helvetica", size=12)
-    
-    # Encabezado
-    pdf.set_font("Helvetica", "B", 16)
-    pdf.cell(0, 10, f"COTIZACIÓN N° {num_cotizacion}", ln=True, align="C")
-    pdf.ln(5)
-    
-    # Datos Emisor
-    pdf.set_font("Helvetica", "B", 11)
-    pdf.cell(0, 6, f"EMISOR: {empresa['nombre']}", ln=True)
-    pdf.set_font("Helvetica", size=10)
-    pdf.cell(0, 5, f"RIF/Tax ID: {empresa['rif']}", ln=True)
-    pdf.cell(0, 5, f"Dirección: {empresa['direccion']}", ln=True)
-    pdf.ln(5)
-    
-    # Datos Cliente
-    pdf.set_font("Helvetica", "B", 11)
-    pdf.cell(0, 6, f"CLIENTE: {cliente_nombre}", ln=True)
-    pdf.set_font("Helvetica", size=10)
-    pdf.cell(0, 5, f"RIF/Tax ID: {cliente_rif}", ln=True)
-    pdf.cell(0, 5, f"Dirección: {cliente_dir}", ln=True)
-    pdf.cell(0, 5, f"Moneda de Cotización: {moneda}", ln=True)
-    pdf.ln(8)
-    
-    # Tabla de Productos
-    pdf.set_font("Helvetica", "B", 10)
-    pdf.cell(100, 7, "Descripción", 1)
-    pdf.cell(25, 7, "Cant.", 1, 0, "C")
-    pdf.cell(30, 7, "P. Unitario", 1, 0, "R")
-    pdf.cell(35, 7, "Subtotal", 1, 1, "R")
-    
-    pdf.set_font("Helvetica", size=9)
-    for item in items:
-        pdf.cell(100, 6, str(item['descripcion'])[:50], 1)
-        pdf.cell(25, 6, str(item['cantidad']), 1, 0, "C")
-        pdf.cell(30, 6, f"{item['precio']:.2f}", 1, 0, "R")
-        pdf.cell(35, 6, f"{item['subtotal']:.2f}", 1, 1, "R")
-        
-    pdf.ln(5)
-    # Totales
-    pdf.set_font("Helvetica", "B", 11)
-    pdf.cell(155, 7, "TOTAL:", 0, 0, "R")
-    pdf.cell(35, 7, f"{moneda} {total:.2f}", 1, 1, "R")
-    
-    # Datos Bancarios
-    if empresa.get("datos_bancarios"):
-        pdf.ln(10)
-        pdf.set_font("Helvetica", "B", 10)
-        pdf.cell(0, 5, "DATOS DE PAGO / BANCOS:", ln=True)
-        pdf.set_font("Helvetica", size=9)
-        pdf.multi_cell(0, 5, empresa['datos_bancarios'])
 
-    return bytes(pdf.output())
 # ==========================================
 # MÓDULO 1: REGISTRO Y EDICIÓN DE EMPRESAS
 # ==========================================
@@ -92,7 +98,6 @@ if opcion == "1. Empresas":
     st.title("🏢 Gestión de Empresas Cotizadoras")
     st.write("Registra o edita los datos de la empresa, su logotipo y el sello/firma.")
 
-    # Consultar empresas existentes
     try:
         res = supabase.table("empresas").select("*").execute()
         empresas = res.data
@@ -114,7 +119,6 @@ if opcion == "1. Empresas":
 
     st.divider()
 
-    # Valores por defecto para el formulario
     nombre_val = empresa_sel["nombre"] if empresa_sel else ""
     direccion_val = empresa_sel["direccion"] if empresa_sel else ""
     rif_val = empresa_sel["rif"] if empresa_sel else ""
@@ -150,7 +154,6 @@ if opcion == "1. Empresas":
             logo_url = empresa_sel.get("logo_url") if empresa_sel else None
             sello_url = empresa_sel.get("sello_firma_url") if empresa_sel else None
 
-            # Subir Logo a Supabase Storage
             if logo_file:
                 ext = logo_file.name.split(".")[-1]
                 path_logo = f"logos/{uuid.uuid4()}.{ext}"
@@ -161,7 +164,6 @@ if opcion == "1. Empresas":
                 )
                 logo_url = supabase.storage.from_("archivos-cotizador").get_public_url(path_logo)
 
-            # Subir Sello/Firma a Supabase Storage
             if sello_file:
                 ext = sello_file.name.split(".")[-1]
                 path_sello = f"sellos/{uuid.uuid4()}.{ext}"
@@ -182,23 +184,20 @@ if opcion == "1. Empresas":
             }
 
             if empresa_sel:
-                # Actualizar
                 supabase.table("empresas").update(datos_empresa).eq("id", empresa_sel["id"]).execute()
                 st.success(f"¡Empresa '{nombre}' actualizada correctamente!")
             else:
-                # Insertar
                 supabase.table("empresas").insert(datos_empresa).execute()
                 st.success(f"¡Empresa '{nombre}' registrada con éxito!")
             
             st.rerun()
 
 # ==========================================
-# MÓDULOS EN CONSTRUCCIÓN
+# MÓDULO 2: GENERAR NUEVA COTIZACIÓN
 # ==========================================
 elif opcion == "2. Cotizar":
     st.title("📝 Generar Nueva Cotización")
     
-    # Cargar empresas registradas
     try:
         res = supabase.table("empresas").select("*").execute()
         empresas = res.data
@@ -210,18 +209,16 @@ elif opcion == "2. Cotizar":
         st.warning("⚠️ Primero debes registrar al menos una Empresa en el Módulo 1.")
         st.stop()
         
-    # Selección de Empresa Emisora
     nombres_emp = [e["nombre"] for e in empresas]
     emp_seleccionada = st.selectbox("Selecciona la Empresa Emisora:", nombres_emp)
     empresa = next(e for e in empresas if e["nombre"] == emp_seleccionada)
     
     st.divider()
     
-    # Formulario de Cotización
     col_c1, col_c2 = st.columns(2)
     with col_c1:
         st.subheader("👤 Datos del Cliente")
-        cliente_nombre = st.text_input("Nombre / Razon Social del Cliente *")
+        cliente_nombre = st.text_input("Nombre / Razón Social del Cliente *")
         cliente_rif = st.text_input("RIF / Tax ID del Cliente")
         cliente_dir = st.text_area("Dirección del Cliente")
         
@@ -233,7 +230,6 @@ elif opcion == "2. Cotizar":
     st.subheader("📦 Productos / Servicios")
     st.write("Agrega o edita las filas directamente en la tabla:")
     
-    # Tabla interactiva para productos
     df_inicial = pd.DataFrame([
         {"Descripción": "Producto / Servicio Ejemplo", "Cantidad": 1, "Precio Unitario": 100.0}
     ])
@@ -248,7 +244,6 @@ elif opcion == "2. Cotizar":
         use_container_width=True
     )
     
-    # Calcular Totales
     df_editado["Subtotal"] = df_editado["Cantidad"] * df_editado["Precio Unitario"]
     total_cotizacion = df_editado["Subtotal"].sum()
     
@@ -258,7 +253,6 @@ elif opcion == "2. Cotizar":
         if not cliente_nombre or total_cotizacion <= 0:
             st.error("Por favor ingresa el nombre del cliente y al menos un producto con precio.")
         else:
-            # Preparar lista de items
             items_list = []
             for _, row in df_editado.iterrows():
                 items_list.append({
@@ -268,13 +262,11 @@ elif opcion == "2. Cotizar":
                     "subtotal": float(row["Subtotal"])
                 })
                 
-            # Generar PDF
             pdf_bytes = crear_pdf_cotizacion(
                 empresa, cliente_nombre, cliente_rif, cliente_dir, moneda,
                 items_list, total_cotizacion, total_cotizacion, num_cotizacion
             )
             
-            # Guardar PDF en Supabase Storage
             path_pdf = f"cotizaciones/{num_cotizacion}_{uuid.uuid4()}.pdf"
             supabase.storage.from_("archivos-cotizador").upload(
                 path=path_pdf, 
@@ -283,7 +275,6 @@ elif opcion == "2. Cotizar":
             )
             pdf_url = supabase.storage.from_("archivos-cotizador").get_public_url(path_pdf)
             
-            # Guardar Registro en la Base de Datos
             datos_cotizacion = {
                 "numero_cotizacion": num_cotizacion,
                 "empresa_id": empresa["id"],
@@ -308,6 +299,9 @@ elif opcion == "2. Cotizar":
                 use_container_width=True
             )
 
+# ==========================================
+# MÓDULO 3: HISTORIAL DE COTIZACIONES
+# ==========================================
 elif opcion == "3. Historial":
     st.title("📚 Historial de Cotizaciones")
     st.info("Próximamente: Lista de cotizaciones emitidas y descargas.")
