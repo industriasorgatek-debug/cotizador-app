@@ -5,27 +5,28 @@ import uuid
 # Configuración de la página
 st.set_page_config(page_title="Cotizador Online", page_icon="📄", layout="wide")
 
-# Conexión a Supabase limpia y segura
-@st.cache_resource
-def init_supabase() -> Client:
-    # Obtener y limpiar la URL (eliminar /rest/v1 o barras al final si existen)
-    raw_url = st.secrets["SUPABASE_URL"].strip().rstrip('/')
-    if raw_url.endswith("/rest/v1"):
-        raw_url = raw_url[:-8].rstrip('/')
+# Lectura directa de Secrets SIN memoria caché (para forzar lectura fresca)
+try:
+    url = st.secrets["SUPABASE_URL"].strip().rstrip('/')
+    if url.endswith("/rest/v1"):
+        url = url[:-8].rstrip('/')
     
     key = st.secrets["SUPABASE_KEY"].strip()
-    return create_client(raw_url, key)
-
-try:
-    supabase = init_supabase()
+    supabase: Client = create_client(url, key)
 except Exception as e:
-    st.error("Error al inicializar el cliente de Supabase:")
-    st.exception(e)
+    st.error("🚨 Error al inicializar la conexión con Supabase:")
+    st.write(e)
     st.stop()
 
 # Menú Principal
 st.sidebar.title("📌 Menú Cotizador")
 opcion = st.sidebar.radio("Selecciona un módulo:", ["1. Empresas", "2. Cotizar", "3. Historial"])
+
+# Diagnóstico visible en la barra lateral
+with st.sidebar.expander("🔍 Verificación de Datos"):
+    st.write(f"**URL:** `{url}`")
+    st.write(f"**Clave empieza con:** `{key[:12]}...`")
+    st.write(f"**Longitud de Clave:** `{len(key)} caracteres`")
 
 # ==========================================
 # MÓDULO 1: REGISTRO Y EDICIÓN DE EMPRESAS
@@ -34,14 +35,13 @@ if opcion == "1. Empresas":
     st.title("🏢 Gestión de Empresas Cotizadoras")
     st.write("Registra o edita los datos de la empresa, su logotipo y el sello/firma.")
 
-    # Consultar empresas existentes con captura de errores explícita
+    # Consultar empresas existentes
     try:
         res = supabase.table("empresas").select("*").execute()
         empresas = res.data
     except Exception as e:
-        st.error("🚨 Error al conectar con la tabla 'empresas' de Supabase:")
+        st.error("🚨 Error al consultar la tabla 'empresas' de Supabase:")
         st.write(e)
-        st.info("Verifica tus Secrets en Streamlit o confirma que la tabla exista en el mismo proyecto.")
         st.stop()
 
     modo = st.radio("Acción:", ["Registrar Nueva Empresa", "Editar Empresa Existente"], horizontal=True)
@@ -93,7 +93,7 @@ if opcion == "1. Empresas":
             logo_url = empresa_sel.get("logo_url") if empresa_sel else None
             sello_url = empresa_sel.get("sello_firma_url") if empresa_sel else None
 
-            # Subir Logo a Supabase Storage si se cargó un nuevo archivo
+            # Subir Logo a Supabase Storage
             if logo_file:
                 ext = logo_file.name.split(".")[-1]
                 path_logo = f"logos/{uuid.uuid4()}.{ext}"
