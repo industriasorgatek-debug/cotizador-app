@@ -23,7 +23,7 @@ except Exception as e:
     st.stop()
 
 
-# Función para limpiar caracteres especiales incompatibles con PDF (Euro, Yen, etc.)
+# Función para limpiar caracteres especiales incompatibles con PDF
 def limpiar_texto(texto):
     if texto is None:
         return ""
@@ -55,22 +55,77 @@ def obtener_bytes_imagen(url_img):
         return None
 
 
+# Función para imprimir bloques de texto formateando en NEGRITA lo que está antes de ':'
+def render_texto_con_dospuntos(pdf, texto, x_start, max_w, font_size=7.5):
+    if not texto:
+        return
+    for linea in str(texto).split("\n"):
+        linea = linea.strip()
+        if not linea:
+            continue
+        if ":" in linea:
+            partes = linea.split(":", 1)
+            clave = partes[0].strip() + ":"
+            valor = " " + partes[1].strip()
+            
+            pdf.set_x(x_start)
+            pdf.set_font("Helvetica", "B", font_size)
+            w_clave = pdf.get_string_width(limpiar_texto(clave)) + 1.5
+            pdf.cell(w_clave, 3.5, limpiar_texto(clave), ln=0)
+            
+            pdf.set_font("Helvetica", "", font_size)
+            pdf.multi_cell(max_w - w_clave, 3.5, limpiar_texto(valor))
+        else:
+            pdf.set_x(x_start)
+            pdf.set_font("Helvetica", "", font_size)
+            pdf.multi_cell(max_w, 3.5, limpiar_texto(linea))
+
+
 # ==========================================
-# DISEÑADOR DE PDF PROFESIONAL / EJECUTIVO
+# DISEÑADOR DE PDF PROFESIONAL MULTI-IDIOMA
 # ==========================================
-def crear_pdf_cotizacion(empresa, cliente_nombre, cliente_rif, cliente_dir, moneda, items, subtotal, total, num_cotizacion):
+def crear_pdf_cotizacion(
+    empresa, cliente_nombre, cliente_rif, cliente_dir, moneda, items, 
+    subtotal, monto_iva, alicuota_iva, total, num_cotizacion,
+    tipo_documento, idioma, validez, incoterm, condiciones_pago, notas
+):
     pdf = FPDF(orientation="P", unit="mm", format="A4")
     pdf.set_margins(15, 15, 15)
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=20)
     
+    # Diccionario de traducciones
+    es_ingles = (idioma == "Inglés")
+    
+    # Títulos principales según tipo e idioma
+    if tipo_documento == "Proforma Invoice":
+        titulo_doc = "PROFORMA INVOICE"
+    elif tipo_documento == "Factura Comercial":
+        titulo_doc = "COMMERCIAL INVOICE" if es_ingles else "FACTURA COMERCIAL"
+    else:
+        titulo_doc = "QUOTATION" if es_ingles else "COTIZACION"
+
+    lbl_num = "No.:" if es_ingles else "N°:"
+    lbl_fecha = "Date:" if es_ingles else "Fecha:"
+    lbl_validez = "Validity:" if es_ingles else "Validez:"
+    lbl_emisor = "ISSUER / SUPPLIER" if es_ingles else "EMISOR / PROVEEDOR"
+    lbl_cliente = "CLIENT / RECIPIENT" if es_ingles else "CLIENTE / DESTINATARIO"
+    lbl_desc = "  Description of Goods / Services" if es_ingles else "  Descripcion del Producto / Servicio"
+    lbl_cant = "Qty" if es_ingles else "Cant."
+    lbl_precio = "Unit Price" if es_ingles else "P. Unitario"
+    lbl_sub = "Subtotal  "
+    lbl_bancos = "BANK DETAILS / PAYMENT INSTRUCTIONS:" if es_ingles else "DATOS BANCARIOS / INSTRUCCIONES DE PAGO:"
+    lbl_cond_pago = "Payment Terms:" if es_ingles else "Condiciones de Pago:"
+    lbl_incoterm = "Incoterm:" if es_ingles else "Incoterm:"
+    lbl_notas = "REMARKS / COMPLEMENTARY NOTES:" if es_ingles else "NOTAS COMPLEMENTARIAS / OBSERVACIONES:"
+    lbl_firma = "Authorized Signature / Stamp" if es_ingles else "Firma / Sello Autorizado"
+
     # ------------------------------------
     # 1. ENCABEZADO Y LOGO
     # ------------------------------------
     logo_bytes = obtener_bytes_imagen(empresa.get("logo_url"))
     sello_bytes = obtener_bytes_imagen(empresa.get("sello_firma_url"))
 
-    # Renderizar Logo
     if logo_bytes:
         try:
             pdf.image(logo_bytes, x=15, y=14, w=45)
@@ -79,97 +134,100 @@ def crear_pdf_cotizacion(empresa, cliente_nombre, cliente_rif, cliente_dir, mone
             pdf.cell(90, 10, limpiar_texto(empresa['nombre'])[:25], ln=False)
     else:
         pdf.set_font("Helvetica", "B", 16)
-        pdf.set_text_color(26, 54, 93) # Azul Marino
+        pdf.set_text_color(26, 54, 93)
         pdf.cell(90, 10, limpiar_texto(empresa['nombre'])[:30], ln=False)
 
     # Título del Documento a la derecha
-    pdf.set_xy(110, 14)
-    pdf.set_font("Helvetica", "B", 18)
+    pdf.set_xy(105, 12)
+    pdf.set_font("Helvetica", "B", 16)
     pdf.set_text_color(26, 54, 93)
-    pdf.cell(85, 8, "COTIZACION", align="R", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(90, 7, titulo_doc, align="R", new_x="LMARGIN", new_y="NEXT")
     
-    pdf.set_x(110)
-    pdf.set_font("Helvetica", "B", 11)
+    pdf.set_x(105)
+    pdf.set_font("Helvetica", "B", 10)
     pdf.set_text_color(100, 116, 139)
-    pdf.cell(85, 5, limpiar_texto(f"N°: {num_cotizacion}"), align="R", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(90, 4.5, limpiar_texto(f"{lbl_num} {num_cotizacion}"), align="R", new_x="LMARGIN", new_y="NEXT")
     
-    pdf.set_x(110)
-    pdf.set_font("Helvetica", "", 10)
-    pdf.cell(85, 5, f"Fecha: {datetime.now().strftime('%d/%m/%Y')}", align="R", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_x(105)
+    pdf.set_font("Helvetica", "", 9)
+    pdf.cell(90, 4, f"{lbl_fecha} {datetime.now().strftime('%d/%m/%Y')}", align="R", new_x="LMARGIN", new_y="NEXT")
 
-    pdf.ln(10)
+    if validez:
+        pdf.set_x(105)
+        pdf.cell(90, 4, limpiar_texto(f"{lbl_validez} {validez}"), align="R", new_x="LMARGIN", new_y="NEXT")
+
+    pdf.ln(4)
     
-    # Línea Divisoria Elegante
+    # Línea Divisoria
     pdf.set_draw_color(26, 54, 93)
     pdf.set_line_width(0.8)
     pdf.line(15, 42, 195, 42)
     pdf.ln(4)
 
     # ------------------------------------
-    # 2. BLOQUE EMISOR Y CLIENTE (2 Cajas)
+    # 2. BLOQUE EMISOR Y CLIENTE
     # ------------------------------------
     y_bloque = pdf.get_y()
     
-    # Caja Emisor (Izquierda)
+    # Caja Emisor
     pdf.set_fill_color(248, 250, 252)
     pdf.set_draw_color(226, 232, 240)
     pdf.rect(15, y_bloque, 87, 34, style="FD")
     
     pdf.set_xy(18, y_bloque + 3)
-    pdf.set_font("Helvetica", "B", 9)
+    pdf.set_font("Helvetica", "B", 8.5)
     pdf.set_text_color(26, 54, 93)
-    pdf.cell(80, 4, "EMISOR / PROVEEDOR", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(80, 4, lbl_emisor, new_x="LMARGIN", new_y="NEXT")
     
     pdf.set_x(18)
-    pdf.set_font("Helvetica", "B", 10)
+    pdf.set_font("Helvetica", "B", 9.5)
     pdf.set_text_color(30, 41, 59)
-    pdf.cell(80, 5, limpiar_texto(empresa['nombre'])[:38], new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(80, 4.5, limpiar_texto(empresa['nombre'])[:38], new_x="LMARGIN", new_y="NEXT")
     
     pdf.set_x(18)
-    pdf.set_font("Helvetica", "", 8.5)
+    pdf.set_font("Helvetica", "", 8)
     pdf.set_text_color(71, 85, 105)
     pdf.cell(80, 4, limpiar_texto(f"RIF/Tax ID: {empresa['rif']}"), new_x="LMARGIN", new_y="NEXT")
     
     pdf.set_x(18)
-    pdf.multi_cell(80, 4, limpiar_texto(f"Dir: {empresa['direccion']}")[:80])
+    pdf.multi_cell(80, 3.8, limpiar_texto(f"Dir: {empresa['direccion']}")[:80])
 
-    # Caja Cliente (Derecha)
+    # Caja Cliente
     pdf.rect(108, y_bloque, 87, 34, style="FD")
     
     pdf.set_xy(111, y_bloque + 3)
-    pdf.set_font("Helvetica", "B", 9)
+    pdf.set_font("Helvetica", "B", 8.5)
     pdf.set_text_color(26, 54, 93)
-    pdf.cell(80, 4, "CLIENTE / DESTINATARIO", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(80, 4, lbl_cliente, new_x="LMARGIN", new_y="NEXT")
     
     pdf.set_x(111)
-    pdf.set_font("Helvetica", "B", 10)
+    pdf.set_font("Helvetica", "B", 9.5)
     pdf.set_text_color(30, 41, 59)
-    pdf.cell(80, 5, limpiar_texto(cliente_nombre)[:38], new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(80, 4.5, limpiar_texto(cliente_nombre)[:38], new_x="LMARGIN", new_y="NEXT")
     
     pdf.set_x(111)
-    pdf.set_font("Helvetica", "", 8.5)
+    pdf.set_font("Helvetica", "", 8)
     pdf.set_text_color(71, 85, 105)
     pdf.cell(80, 4, limpiar_texto(f"RIF/Tax ID: {cliente_rif if cliente_rif else 'N/A'}"), new_x="LMARGIN", new_y="NEXT")
     
     pdf.set_x(111)
-    pdf.multi_cell(80, 4, limpiar_texto(f"Dir: {cliente_dir if cliente_dir else 'N/A'}")[:80])
+    pdf.multi_cell(80, 3.8, limpiar_texto(f"Dir: {cliente_dir if cliente_dir else 'N/A'}")[:80])
 
     pdf.set_y(y_bloque + 38)
 
     # ------------------------------------
-    # 3. TABLA DE PRODUCTOS Y SERVICIOS
+    # 3. TABLA DE PRODUCTOS
     # ------------------------------------
     pdf.set_font("Helvetica", "B", 9)
     pdf.set_fill_color(26, 54, 93)
     pdf.set_text_color(255, 255, 255)
     pdf.set_draw_color(26, 54, 93)
 
-    pdf.cell(95, 8, "  Descripcion del Producto / Servicio", border=1, fill=True)
-    pdf.cell(20, 8, "Cant.", border=1, fill=True, align="C")
-    pdf.cell(30, 8, "P. Unitario", border=1, fill=True, align="R")
-    pdf.cell(35, 8, "Subtotal  ", border=1, fill=True, align="R", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(95, 8, lbl_desc, border=1, fill=True)
+    pdf.cell(20, 8, lbl_cant, border=1, fill=True, align="C")
+    pdf.cell(30, 8, lbl_precio, border=1, fill=True, align="R")
+    pdf.cell(35, 8, lbl_sub, border=1, fill=True, align="R", new_x="LMARGIN", new_y="NEXT")
 
-    # Filas de Productos
     pdf.set_font("Helvetica", "", 9)
     pdf.set_text_color(51, 65, 85)
     pdf.set_draw_color(226, 232, 240)
@@ -177,7 +235,6 @@ def crear_pdf_cotizacion(empresa, cliente_nombre, cliente_rif, cliente_dir, mone
     fill = False
     for item in items:
         pdf.set_fill_color(241, 245, 249) if fill else pdf.set_fill_color(255, 255, 255)
-        
         pdf.cell(95, 7, f"  {limpiar_texto(item['descripcion'])[:48]}", border="LRTB", fill=fill)
         pdf.cell(20, 7, str(item['cantidad']), border="LRTB", align="C", fill=fill)
         pdf.cell(30, 7, f"{item['precio']:,.2f}", border="LRTB", align="R", fill=fill)
@@ -187,56 +244,79 @@ def crear_pdf_cotizacion(empresa, cliente_nombre, cliente_rif, cliente_dir, mone
     pdf.ln(4)
 
     # ------------------------------------
-    # 4. TOTALES Y BANCOS
+    # 4. TOTALES Y CONDICIONES
     # ------------------------------------
     y_totales = pdf.get_y()
 
-    # Caja de Datos Bancarios (Izquierda)
-    if empresa.get("datos_bancarios"):
+    # Caja de Datos Bancarios e Instrucciones (Izquierda)
+    if empresa.get("datos_bancarios") or condiciones_pago or (incoterm and incoterm != "N/A"):
         pdf.set_fill_color(248, 250, 252)
         pdf.set_draw_color(226, 232, 240)
-        pdf.rect(15, y_totales, 105, 32, style="FD")
+        pdf.rect(15, y_totales, 105, 36, style="FD")
         
         pdf.set_xy(18, y_totales + 2)
-        pdf.set_font("Helvetica", "B", 8.5)
+        pdf.set_font("Helvetica", "B", 8)
         pdf.set_text_color(26, 54, 93)
-        pdf.cell(98, 4, "DATOS BANCARIOS / INSTRUCCIONES DE PAGO:", new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(98, 4, lbl_bancos, new_x="LMARGIN", new_y="NEXT")
         
-        pdf.set_x(18)
+        # Renderizado de Datos Bancarios con NEGRITA antes de los ':'
+        if empresa.get("datos_bancarios"):
+            render_texto_con_dospuntos(pdf, empresa['datos_bancarios'], x_start=18, max_w=98, font_size=7)
+
+        # Incoterm y Condiciones de Pago
         pdf.set_font("Helvetica", "", 7.5)
         pdf.set_text_color(71, 85, 105)
-        pdf.multi_cell(98, 3.5, limpiar_texto(empresa['datos_bancarios'])[:220])
+        if condiciones_pago:
+            render_texto_con_dospuntos(pdf, f"{lbl_cond_pago} {condiciones_pago}", x_start=18, max_w=98, font_size=7.5)
+        if incoterm and incoterm != "N/A":
+            render_texto_con_dospuntos(pdf, f"{lbl_incoterm} {incoterm}", x_start=18, max_w=98, font_size=7.5)
 
     # Caja Resumen del Total (Derecha)
     pdf.set_xy(125, y_totales)
-    pdf.set_font("Helvetica", "B", 10)
+    pdf.set_font("Helvetica", "B", 9)
     pdf.set_text_color(71, 85, 105)
-    pdf.cell(30, 7, "Moneda:", align="L")
-    pdf.cell(40, 7, limpiar_texto(moneda), align="R", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(30, 6, "Moneda / Currency:" if es_ingles else "Moneda:", align="L")
+    pdf.cell(40, 6, limpiar_texto(moneda), align="R", new_x="LMARGIN", new_y="NEXT")
     
     pdf.set_x(125)
-    pdf.cell(30, 7, "Subtotal:", align="L")
-    pdf.cell(40, 7, f"{subtotal:,.2f}", align="R", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(30, 6, "Subtotal:", align="L")
+    pdf.cell(40, 6, f"{subtotal:,.2f}", align="R", new_x="LMARGIN", new_y="NEXT")
+
+    if monto_iva > 0:
+        pdf.set_x(125)
+        lbl_tax = f"Tax/VAT ({alicuota_iva:.0f}%):" if es_ingles else f"IVA ({alicuota_iva:.0f}%):"
+        pdf.cell(30, 6, lbl_tax, align="L")
+        pdf.cell(40, 6, f"{monto_iva:,.2f}", align="R", new_x="LMARGIN", new_y="NEXT")
 
     # Destacado del Total
     pdf.set_x(125)
     pdf.set_fill_color(26, 54, 93)
     pdf.set_text_color(255, 255, 255)
-    pdf.set_font("Helvetica", "B", 11)
-    pdf.cell(30, 9, "  TOTAL:", fill=True)
-    pdf.cell(40, 9, f"{total:,.2f}  ", fill=True, align="R", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", "B", 10.5)
+    pdf.cell(30, 8, "  TOTAL:", fill=True)
+    pdf.cell(40, 8, f"{total:,.2f}  ", fill=True, align="R", new_x="LMARGIN", new_y="NEXT")
 
     # ------------------------------------
-    # 5. SELLO Y FIRMA HÚMEDA
+    # 5. NOTAS COMPLEMENTARIAS
     # ------------------------------------
-    y_final = pdf.get_y() + 8
+    pdf.set_y(y_totales + 38)
+    if notas:
+        pdf.set_font("Helvetica", "B", 8)
+        pdf.set_text_color(26, 54, 93)
+        pdf.cell(0, 4, lbl_notas, new_x="LMARGIN", new_y="NEXT")
+        render_texto_con_dospuntos(pdf, notas, x_start=15, max_w=180, font_size=7.5)
+
+    # ------------------------------------
+    # 6. SELLO Y FIRMA HÚMEDA
+    # ------------------------------------
+    y_final = pdf.get_y() + 4
     if sello_bytes:
         try:
-            pdf.image(sello_bytes, x=130, y=y_final, w=48)
-            pdf.set_xy(130, y_final + 26)
+            pdf.image(sello_bytes, x=135, y=y_final, w=45)
+            pdf.set_xy(135, y_final + 24)
             pdf.set_font("Helvetica", "I", 8)
             pdf.set_text_color(100, 116, 139)
-            pdf.cell(48, 4, "Firma / Sello Autorizado", align="C")
+            pdf.cell(45, 4, lbl_firma, align="C")
         except Exception:
             pass
 
@@ -290,7 +370,11 @@ if opcion == "1. Empresas":
         nombre = st.text_input("Nombre de la Empresa *", value=nombre_val)
         rif = st.text_input("Número de RIF / Tax ID *", value=rif_val)
         direccion = st.text_area("Dirección Fiscal", value=direccion_val)
-        datos_bancarios = st.text_area("Datos Bancarios para Transferencias", value=bancos_val, help="Ej: Banco X, Cuenta Nro..., SWIFT...")
+        datos_bancarios = st.text_area(
+            "Datos Bancarios para Transferencias", 
+            value=bancos_val, 
+            help="Puedes escribir en líneas con dos puntos (:), por ejemplo:\nBank: Bank of America\nAccount: 12345678"
+        )
 
         st.subheader("🖼️ Imágenes Corporativas")
         col1, col2 = st.columns(2)
@@ -358,7 +442,7 @@ if opcion == "1. Empresas":
 # MÓDULO 2: COTIZAR
 # ------------------------------------------
 elif opcion == "2. Cotizar":
-    st.title("📝 Generar Nueva Cotización")
+    st.title("📝 Generar Nueva Cotización / Factura Proforma")
     
     try:
         res = supabase.table("empresas").select("*").execute()
@@ -377,21 +461,33 @@ elif opcion == "2. Cotizar":
     
     st.divider()
     
+    # 1. Configuración Principal del Documento
+    col_t1, col_t2, col_t3 = st.columns(3)
+    with col_t1:
+        tipo_documento = st.selectbox("Tipo de Documento *", ["Cotización", "Proforma Invoice", "Factura Comercial"])
+    with col_t2:
+        idioma = st.selectbox("Idioma del Documento *", ["Español", "Inglés"])
+    with col_t3:
+        moneda = st.selectbox("Moneda *", ["USD ($)", "EUR (€)", "RMB (¥)"])
+
     col_c1, col_c2 = st.columns(2)
     with col_c1:
         st.subheader("👤 Datos del Cliente")
         cliente_nombre = st.text_input("Nombre / Razón Social del Cliente *")
         cliente_rif = st.text_input("RIF / Tax ID del Cliente")
-        cliente_dir = st.text_area("Dirección del Cliente")
+        cliente_dir = st.text_area("Dirección del Cliente", height=80)
         
     with col_c2:
-        st.subheader("⚙️ Configuración")
-        moneda = st.selectbox("Moneda de la Cotización *", ["USD ($)", "EUR (€)", "RMB (¥)"])
-        num_cotizacion = st.text_input("Número de Cotización *", value=f"COT-{datetime.now().strftime('%Y%m%d%H%M')}")
+        st.subheader("⚙️ Detalles Comerciales")
+        num_cotizacion = st.text_input("Número de Documento *", value=f"COT-{datetime.now().strftime('%Y%m%d%H%M')}")
+        validez = st.text_input("Tiempo de Validez", value="15 Días")
+        incoterm = st.selectbox(
+            "Incoterm (Opcional)", 
+            ["N/A", "EXW - Ex Works", "FOB - Free on Board", "FCA - Free Carrier", "CIF - Cost, Insurance & Freight", "CFR - Cost and Freight", "DDP - Delivered Duty Paid", "DAP - Delivered at Place", "CIP - Carriage and Insurance Paid to", "CPT - Carriage Paid To", "DPU - Delivered at Place Unloaded", "FAS - Free Alongside Ship"]
+        )
+        condiciones_pago = st.text_input("Condiciones de Pago", value="100% Anticipado")
 
     st.subheader("📦 Productos / Servicios")
-    st.write("Agrega o edita las filas directamente en la tabla:")
-    
     df_inicial = pd.DataFrame([
         {"Descripción": "Producto / Servicio Ejemplo", "Cantidad": 1, "Precio Unitario": 100.0}
     ])
@@ -406,12 +502,29 @@ elif opcion == "2. Cotizar":
         use_container_width=True
     )
     
+    # Cálculos
     df_editado["Subtotal"] = df_editado["Cantidad"] * df_editado["Precio Unitario"]
-    total_cotizacion = df_editado["Subtotal"].sum()
-    
-    st.markdown(f"### 💰 **Total Cotización:** `{moneda} {total_cotizacion:,.2f}`")
-    
-    if st.button("📄 Generar y Guardar Cotización", use_container_width=True, type="primary"):
+    subtotal_cotizacion = df_editado["Subtotal"].sum()
+
+    st.divider()
+    col_i1, col_i2 = st.columns(2)
+    with col_i1:
+        aplica_iva = st.checkbox("¿Aplica Impuestos / IVA?", value=False)
+        alicuota_iva = st.number_input("Alícuota de Impuesto (%)", min_value=0.0, max_value=100.0, value=16.0, step=1.0) if aplica_iva else 0.0
+        monto_iva = subtotal_cotizacion * (alicuota_iva / 100.0) if aplica_iva else 0.0
+        total_cotizacion = subtotal_cotizacion + monto_iva
+
+        st.markdown(f"**Subtotal:** `{moneda} {subtotal_cotizacion:,.2f}`")
+        if aplica_iva:
+            st.markdown(f"**Impuesto ({alicuota_iva:.0f}%):** `{moneda} {monto_iva:,.2f}`")
+        st.markdown(f"### 💰 **Total:** `{moneda} {total_cotizacion:,.2f}`")
+
+    with col_i2:
+        notas = st.text_area("Notas Complementarias / Observaciones", help="Aclaratorias de despacho, garantías, etc.")
+
+    st.divider()
+
+    if st.button("📄 Generar y Guardar Documento", use_container_width=True, type="primary"):
         if not cliente_nombre or total_cotizacion <= 0:
             st.error("Por favor ingresa el nombre del cliente y al menos un producto con precio.")
         else:
@@ -426,7 +539,9 @@ elif opcion == "2. Cotizar":
                 
             pdf_bytes = crear_pdf_cotizacion(
                 empresa, cliente_nombre, cliente_rif, cliente_dir, moneda,
-                items_list, total_cotizacion, total_cotizacion, num_cotizacion
+                items_list, subtotal_cotizacion, monto_iva, alicuota_iva, 
+                total_cotizacion, num_cotizacion, tipo_documento, idioma, 
+                validez, incoterm, condiciones_pago, notas
             )
             
             path_pdf = f"cotizaciones/{num_cotizacion}_{uuid.uuid4()}.pdf"
@@ -445,23 +560,31 @@ elif opcion == "2. Cotizar":
                 "cliente_direccion": cliente_dir,
                 "moneda": moneda,
                 "items": items_list,
-                "subtotal": float(total_cotizacion),
+                "subtotal": float(subtotal_cotizacion),
+                "alicuota_iva": float(alicuota_iva),
+                "monto_iva": float(monto_iva),
                 "total": float(total_cotizacion),
+                "tipo_documento": tipo_documento,
+                "idioma": idioma,
+                "validez": validez,
+                "incoterm": incoterm,
+                "condiciones_pago": condiciones_pago,
+                "notas": notas,
                 "pdf_url": pdf_url
             }
             
             try:
                 supabase.table("cotizaciones").insert(datos_cotizacion).execute()
-                st.success("🎉 ¡Cotización profesional generada con éxito!")
+                st.success("🎉 ¡Documento emitido y guardado con éxito!")
                 st.download_button(
-                    label="⬇️ Descargar Cotización PDF Profesional",
+                    label=f"⬇️ Descargar {tipo_documento} (PDF)",
                     data=pdf_bytes,
                     file_name=f"{num_cotizacion}.pdf",
                     mime="application/pdf",
                     use_container_width=True
                 )
             except Exception as e_db:
-                st.error("🚨 Error al guardar la cotización en la Base de Datos:")
+                st.error("🚨 Error al guardar en la Base de Datos:")
                 st.write(e_db)
 
 # ------------------------------------------
