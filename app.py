@@ -32,7 +32,7 @@ def es_vacio_o_none(texto):
     return txt in ["", "none", "empty", "null", "n/a", "undefined", "omitir"]
 
 
-# Función para extraer lista de cuentas bancarias (compatibilidad con texto anterior o formato JSON)
+# Función para extraer lista de cuentas bancarias
 def obtener_cuentas_bancarias(empresa_obj):
     if not empresa_obj:
         return []
@@ -48,7 +48,6 @@ def obtener_cuentas_bancarias(empresa_obj):
                 return parsed
         except Exception:
             pass
-        # Si es texto plano antiguo de una sola cuenta, se adapta automáticamente
         return [{"alias": "Cuenta Principal", "detalles": raw}]
     return []
 
@@ -71,6 +70,53 @@ def limpiar_texto(texto):
     for origen, destino in reemplazos.items():
         texto = texto.replace(origen, destino)
     return texto.encode("latin-1", "replace").decode("latin-1")
+
+
+# Helper para calcular cuantas lineas ocupará un texto envuelto en cierto ancho
+def calcular_lineas_multiline(pdf, texto, ancho, font_name="Helvetica", font_style="", font_size=8.5):
+    pdf.set_font(font_name, font_style, font_size)
+    lineas_totales = 0
+    for parrafo in str(texto).split("\n"):
+        parrafo_limpio = parrafo.strip()
+        if not parrafo_limpio:
+            continue
+        words = parrafo_limpio.split(" ")
+        linea_actual = ""
+        for w in words:
+            test_line = (linea_actual + " " + w).strip()
+            if pdf.get_string_width(limpiar_texto(test_line)) <= (ancho - 2):
+                linea_actual = test_line
+            else:
+                lineas_totales += 1
+                linea_actual = w
+        if linea_actual:
+            lineas_totales += 1
+    return max(1, lineas_totales)
+
+
+# Helper para calcular el número exacto de renglones impresos por render_texto_con_dospuntos
+def calcular_lineas_totales_texto(pdf, texto, max_w, font_size=8.5):
+    if es_vacio_o_none(texto):
+        return 0
+    lineas_count = 0
+    for linea in str(texto).split("\n"):
+        linea = linea.strip()
+        if not linea or es_vacio_o_none(linea):
+            continue
+        if ":" in linea:
+            partes = linea.split(":", 1)
+            clave = partes[0].strip() + ":"
+            valor = " " + partes[1].strip()
+            pdf.set_font("Helvetica", "B", font_size)
+            w_clave = pdf.get_string_width(limpiar_texto(clave)) + 1.5
+            if w_clave > (max_w - 10):
+                lineas_count += calcular_lineas_multiline(pdf, linea, max_w, font_size=font_size)
+            else:
+                lineas_count += calcular_lineas_multiline(pdf, valor, max_w - w_clave, font_size=font_size)
+        else:
+            font_style = "B" if (linea.startswith("[") and linea.endswith("]")) else ""
+            lineas_count += calcular_lineas_multiline(pdf, linea, max_w, font_style=font_style, font_size=font_size)
+    return lineas_count
 
 
 # Función para imprimir bloques de texto formateando en NEGRITA lo que está antes de ':'
@@ -251,7 +297,7 @@ def crear_pdf_cotizacion(
 
     pdf.set_y(y_bloque + 38)
 
-    # 3. Tabla de Productos / Servicios
+    # 3. Tabla de Productos / Servicios (CON AUTO-AJUSTE MULTI-LÍNEA)
     pdf.set_font("Helvetica", "B", 9)
     pdf.set_fill_color(26, 54, 93)
     pdf.set_text_color(255, 255, 255)
@@ -277,34 +323,96 @@ def crear_pdf_cotizacion(
     
     fill = False
     for item in items:
-        pdf.set_fill_color(241, 245, 249) if fill else pdf.set_fill_color(255, 255, 255)
-        
-        desc_texto = f" {limpiar_texto(item['descripcion'])}"
+        # Textos completos sin ningún tipo de recorte
+        desc_texto = limpiar_texto(item['descripcion'])
         if es_producto and not es_vacio_o_none(item.get("presentacion")):
             desc_texto += f" [{limpiar_texto(item['presentacion'])}]"
-        desc_corta = desc_texto[:45]
+            
+        um_texto = limpiar_texto(item.get("uom", "Uds")) if es_producto else ""
+        cant_texto = str(item['cantidad'])
+        prec_texto = f"{item['precio']:,.2f}"
+        sub_texto = f"{item['subtotal']:,.2f} "
+
+        # Calcular altura dinámica según el número de líneas
+        n_lineas_desc = calcular_lineas_multiline(pdf, desc_texto, w_desc - 2, font_size=8.5)
+        n_lineas_um = calcular_lineas_multiline(pdf, um_texto, w_um - 2, font_size=8.5) if es_producto else 1
+        
+        n_lineas_max = max(n_lineas_desc, n_lineas_um, 1)
+        h_fila = max(7.5, (n_lineas_max * 4.5) + 2)
+
+        # Control de salto de página inteligente
+        if pdf.get_y() + h_fila > 275:
+            pdf.add_page()
+            pdf.set_font("Helvetica", "B", 9)
+            pdf.set_fill_color(26, 54, 93)
+            pdf.set_text_color(255, 255, 255)
+            pdf.set_draw_color(26, 54, 93)
+            if es_producto:
+                pdf.cell(w_desc, 8, lbl_desc, border=1, fill=True)
+                pdf.cell(w_um, 8, lbl_um, border=1, fill=True, align="C")
+                pdf.cell(w_cant, 8, lbl_cant, border=1, fill=True, align="C")
+                pdf.cell(w_prec, 8, lbl_precio, border=1, fill=True, align="R")
+                pdf.cell(w_sub, 8, lbl_sub, border=1, fill=True, align="R", new_x="LMARGIN", new_y="NEXT")
+            else:
+                pdf.cell(w_desc, 8, lbl_desc, border=1, fill=True)
+                pdf.cell(w_cant, 8, lbl_cant, border=1, fill=True, align="C")
+                pdf.cell(w_prec, 8, lbl_precio, border=1, fill=True, align="R")
+                pdf.cell(w_sub, 8, lbl_sub, border=1, fill=True, align="R", new_x="LMARGIN", new_y="NEXT")
+            pdf.set_font("Helvetica", "", 8.5)
+            pdf.set_text_color(51, 65, 85)
+            pdf.set_draw_color(226, 232, 240)
+
+        y_inicio = pdf.get_y()
+        fill_color = (241, 245, 249) if fill else (255, 255, 255)
+        pdf.set_fill_color(*fill_color)
+
+        # Dibujar rectángulos de celda con altura calculada h_fila
+        if es_producto:
+            pdf.rect(15, y_inicio, w_desc, h_fila, style="FD")
+            pdf.rect(15 + w_desc, y_inicio, w_um, h_fila, style="FD")
+            pdf.rect(15 + w_desc + w_um, y_inicio, w_cant, h_fila, style="FD")
+            pdf.rect(15 + w_desc + w_um + w_cant, y_inicio, w_prec, h_fila, style="FD")
+            pdf.rect(15 + w_desc + w_um + w_cant + w_prec, y_inicio, w_sub, h_fila, style="FD")
+        else:
+            pdf.rect(15, y_inicio, w_desc, h_fila, style="FD")
+            pdf.rect(15 + w_desc, y_inicio, w_cant, h_fila, style="FD")
+            pdf.rect(15 + w_desc + w_cant, y_inicio, w_prec, h_fila, style="FD")
+            pdf.rect(15 + w_desc + w_cant + w_prec, y_inicio, w_sub, h_fila, style="FD")
+
+        # Imprimir contenido envolviendo el texto
+        pdf.set_xy(16, y_inicio + 1.2)
+        pdf.multi_cell(w_desc - 2, 4.2, desc_texto, border=0, align="L")
 
         if es_producto:
-            um_texto = limpiar_texto(item.get("uom", "Uds"))[:10]
-            pdf.cell(w_desc, 7, desc_corta, border="LRTB", fill=fill)
-            pdf.cell(w_um, 7, um_texto, border="LRTB", align="C", fill=fill)
-            pdf.cell(w_cant, 7, str(item['cantidad']), border="LRTB", align="C", fill=fill)
-            pdf.cell(w_prec, 7, f"{item['precio']:,.2f}", border="LRTB", align="R", fill=fill)
-            pdf.cell(w_sub, 7, f"{item['subtotal']:,.2f} ", border="LRTB", align="R", fill=fill, new_x="LMARGIN", new_y="NEXT")
+            pdf.set_xy(15 + w_desc, y_inicio + (h_fila - 4.5) / 2)
+            pdf.multi_cell(w_um, 4.5, um_texto, border=0, align="C")
+
+            pdf.set_xy(15 + w_desc + w_um, y_inicio + (h_fila - 4.5) / 2)
+            pdf.cell(w_cant, 4.5, cant_texto, border=0, align="C")
+
+            pdf.set_xy(15 + w_desc + w_um + w_cant, y_inicio + (h_fila - 4.5) / 2)
+            pdf.cell(w_prec, 4.5, prec_texto, border=0, align="R")
+
+            pdf.set_xy(15 + w_desc + w_um + w_cant + w_prec, y_inicio + (h_fila - 4.5) / 2)
+            pdf.cell(w_sub, 4.5, sub_texto, border=0, align="R")
         else:
-            pdf.cell(w_desc, 7, desc_corta, border="LRTB", fill=fill)
-            pdf.cell(w_cant, 7, str(item['cantidad']), border="LRTB", align="C", fill=fill)
-            pdf.cell(w_prec, 7, f"{item['precio']:,.2f}", border="LRTB", align="R", fill=fill)
-            pdf.cell(w_sub, 7, f"{item['subtotal']:,.2f} ", border="LRTB", align="R", fill=fill, new_x="LMARGIN", new_y="NEXT")
-            
+            pdf.set_xy(15 + w_desc, y_inicio + (h_fila - 4.5) / 2)
+            pdf.cell(w_cant, 4.5, cant_texto, border=0, align="C")
+
+            pdf.set_xy(15 + w_desc + w_cant, y_inicio + (h_fila - 4.5) / 2)
+            pdf.cell(w_prec, 4.5, prec_texto, border=0, align="R")
+
+            pdf.set_xy(15 + w_desc + w_cant + w_prec, y_inicio + (h_fila - 4.5) / 2)
+            pdf.cell(w_sub, 4.5, sub_texto, border=0, align="R")
+
+        pdf.set_y(y_inicio + h_fila)
         fill = not fill
 
     pdf.ln(5)
 
-    # 4. Módulo Bancario y Totales
+    # 4. Módulo Bancario y Totales (CUADRO DINÁMICO QUE NUNCA SE DESBORDA)
     y_seccion4 = pdf.get_y()
     
-    # Determinar texto bancario (usar custom si existe, sino extraer de empresa)
     if bancos_texto_custom is not None:
         bancos_texto = bancos_texto_custom
     else:
@@ -314,8 +422,8 @@ def crear_pdf_cotizacion(
     
     box_h_bancos = 32
     if not es_vacio_o_none(bancos_texto):
-        lineas_bancos = [l for l in str(bancos_texto).split("\n") if l.strip()]
-        box_h_bancos = max(32, (len(lineas_bancos) * 4.8) + 8)
+        total_lineas_bancos = calcular_lineas_totales_texto(pdf, bancos_texto, max_w=96, font_size=8.5)
+        box_h_bancos = max(32, (total_lineas_bancos * 4.8) + 10)
 
         pdf.set_fill_color(248, 250, 252)
         pdf.set_draw_color(226, 232, 240)
@@ -389,8 +497,8 @@ def crear_pdf_cotizacion(
     # 6. Módulo Notas Complementarias
     if not es_vacio_o_none(notas):
         y_notas = pdf.get_y()
-        lineas_notas_count = len([l for l in str(notas).split("\n") if l.strip()])
-        box_h_notas = max(16, (lineas_notas_count * 5) + 8)
+        total_lineas_notas = calcular_lineas_totales_texto(pdf, notas, max_w=174, font_size=8.5)
+        box_h_notas = max(16, (total_lineas_notas * 4.8) + 8)
         
         pdf.set_fill_color(255, 255, 255)
         pdf.set_draw_color(226, 232, 240)
@@ -663,7 +771,6 @@ elif opcion == "3. Cotizar":
     emp_seleccionada = st.selectbox("Empresa Emisora *", nombres_emp, index=idx_emp)
     empresa = next(e for e in empresas if e["nombre"] == emp_seleccionada)
 
-    # Cuentas bancarias de la empresa seleccionada
     cuentas_disponibles = obtener_cuentas_bancarias(empresa)
 
     st.divider()
@@ -724,7 +831,7 @@ elif opcion == "3. Cotizar":
         )
         condiciones_pago = st.text_input("Condiciones de Pago", value=datos_cargados.get("condiciones_pago", "100% Anticipado") if datos_cargados else "100% Anticipado")
 
-    # SELECCIÓN DINÁMICA DE CUENTAS BANCARIAS
+    # Selección de cuentas bancarias
     bancos_texto_para_pdf = ""
     if cuentas_disponibles:
         st.subheader("🏦 Cuentas Bancarias para este Documento")
@@ -895,7 +1002,6 @@ elif opcion == "3. Cotizar":
                 "tipo_item": tipo_item
             }
             
-            # Guardar en Supabase (con sistema de fallbacks automáticos)
             try:
                 if modo_form == "editar" and datos_cargados:
                     supabase.table("cotizaciones").update(datos_cotizacion).eq("id", datos_cargados["id"]).execute()
