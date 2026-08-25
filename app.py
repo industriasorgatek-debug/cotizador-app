@@ -6,6 +6,7 @@ from fpdf import FPDF
 import io
 import urllib.request
 from datetime import datetime
+import json
 
 # Configuración de la página
 st.set_page_config(page_title="Cotizador Online", page_icon="📄", layout="wide")
@@ -29,6 +30,27 @@ def es_vacio_o_none(texto):
         return True
     txt = str(texto).strip().lower()
     return txt in ["", "none", "empty", "null", "n/a", "undefined", "omitir"]
+
+
+# Función para extraer lista de cuentas bancarias (compatibilidad con texto anterior o formato JSON)
+def obtener_cuentas_bancarias(empresa_obj):
+    if not empresa_obj:
+        return []
+    raw = empresa_obj.get("datos_bancarios", "")
+    if es_vacio_o_none(raw):
+        return []
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                return parsed
+        except Exception:
+            pass
+        # Si es texto plano antiguo de una sola cuenta, se adapta automáticamente
+        return [{"alias": "Cuenta Principal", "detalles": raw}]
+    return []
 
 
 # Función para limpiar caracteres especiales incompatibles con PDF
@@ -76,7 +98,7 @@ def render_texto_con_dospuntos(pdf, texto, x_start, max_w, font_size=8.5, line_h
                 pdf.multi_cell(max_w - w_clave, line_h, limpiar_texto(valor))
         else:
             pdf.set_x(x_start)
-            pdf.set_font("Helvetica", "", font_size)
+            pdf.set_font("Helvetica", "B" if linea.startswith("[") and linea.endswith("]") else "", font_size)
             pdf.multi_cell(max_w, line_h, limpiar_texto(linea))
 
 
@@ -98,7 +120,8 @@ def obtener_bytes_imagen(url_img):
 def crear_pdf_cotizacion(
     empresa, cliente_nombre, cliente_rif, cliente_dir, moneda, items, 
     subtotal, monto_iva, alicuota_iva, total, num_cotizacion,
-    tipo_documento, idioma, validez, incoterm, condiciones_pago, notas, tipo_item
+    tipo_documento, idioma, validez, incoterm, condiciones_pago, notas, tipo_item,
+    bancos_texto_custom=None
 ):
     pdf = FPDF(orientation="P", unit="mm", format="A4")
     pdf.set_margins(15, 15, 15)
@@ -171,7 +194,7 @@ def crear_pdf_cotizacion(
     pdf.line(15, 42, 195, 42)
     pdf.ln(4)
 
-    # 2. Bloque Emisor y Cliente (Con Ocultamiento Inteligente)
+    # 2. Bloque Emisor y Cliente
     y_bloque = pdf.get_y()
     
     # Emisor
@@ -280,12 +303,19 @@ def crear_pdf_cotizacion(
 
     # 4. Módulo Bancario y Totales
     y_seccion4 = pdf.get_y()
-    bancos_texto = empresa.get("datos_bancarios", "")
+    
+    # Determinar texto bancario (usar custom si existe, sino extraer de empresa)
+    if bancos_texto_custom is not None:
+        bancos_texto = bancos_texto_custom
+    else:
+        bancos_raw = empresa.get("datos_bancarios", "")
+        cuentas_list = obtener_cuentas_bancarias({"datos_bancarios": bancos_raw})
+        bancos_texto = "\n\n".join([f"[{c['alias']}]\n{c['detalles']}" for c in cuentas_list])
     
     box_h_bancos = 32
     if not es_vacio_o_none(bancos_texto):
         lineas_bancos = [l for l in str(bancos_texto).split("\n") if l.strip()]
-        box_h_bancos = max(32, (len(lineas_bancos) * 5) + 8)
+        box_h_bancos = max(32, (len(lineas_bancos) * 4.8) + 8)
 
         pdf.set_fill_color(248, 250, 252)
         pdf.set_draw_color(226, 232, 240)
@@ -415,7 +445,7 @@ with st.sidebar.expander("🔍 Verificación de Conexión"):
 # ------------------------------------------
 if opcion == "1. Empresas":
     st.title("🏢 Gestión de Empresas Cotizadoras")
-    st.write("Registra o edita los datos de la empresa emisor, su logotipo y el sello/firma.")
+    st.write("Registra o edita los datos de la empresa emisor, sus cuentas bancarias y sus imágenes.")
 
     try:
         res = supabase.table("empresas").select("*").execute()
@@ -441,16 +471,36 @@ if opcion == "1. Empresas":
     nombre_val = empresa_sel["nombre"] if empresa_sel else ""
     direccion_val = empresa_sel["direccion"] if empresa_sel else ""
     rif_val = empresa_sel["rif"] if empresa_sel else ""
-    bancos_val = empresa_sel["datos_bancarios"] if empresa_sel else ""
+    cuentas_existentes = obtener_cuentas_bancarias(empresa_sel)
 
     with st.form("form_empresa", clear_on_submit=False):
         nombre = st.text_input("Nombre de la Empresa *", value=nombre_val)
         rif = st.text_input("Número de RIF / Tax ID *", value=rif_val)
         direccion = st.text_area("Dirección Fiscal (Escribe 'None' u 'Omitir' para no mostrar en PDF)", value=direccion_val)
-        datos_bancarios = st.text_area(
-            "Datos Bancarios para Transferencias", 
-            value=bancos_val, 
-            help="Escribe cada dato con dos puntos (:), ej:\nBanco: Banesco\nCuenta: 0134..."
+        
+        st.subheader("🏦 Cuentas Bancarias Registradas")
+        st.caption("Agrega una o varias cuentas bancarias en la tabla. Luego en el cotizador elegirás cuál(es) incluir en cada documento.")
+        
+        if not cuentas_existentes:
+            df_cuentas_init = pd.DataFrame([
+                {"Alias de Cuenta": "Banesco Panamá (USD)", "Detalles": "Banco: Banesco Panamá\nCuenta: 0134-XXXX-XX\nSWIFT: XXXXX"},
+                {"Alias de Cuenta": "Zelle (USD)", "Detalles": "Correo: pagos@miempresa.com\nTitular: Mi Empresa LLC"}
+            ])
+        else:
+            df_cuentas_init = pd.DataFrame([
+                {"Alias de Cuenta": c.get("alias", "Cuenta"), "Detalles": c.get("detalles", "")}
+                for c in cuentas_existentes
+            ])
+
+        df_cuentas_edit = st.data_editor(
+            df_cuentas_init,
+            num_rows="dynamic",
+            column_config={
+                "Alias de Cuenta": st.column_config.TextColumn("Alias / Nombre Corto *", help="Ej: Banesco USD, Zelle, Mercantil BS", width="medium"),
+                "Detalles": st.column_config.TextColumn("Datos de la Cuenta (Banco, Nro, SWIFT, Titular)", help="Escribe los datos de la cuenta usando dos puntos (:)", width="large")
+            },
+            use_container_width=True,
+            key="editor_cuentas_empresa"
         )
 
         st.subheader("🖼️ Imágenes Corporativas")
@@ -495,9 +545,19 @@ if opcion == "1. Empresas":
                 )
                 sello_url = supabase.storage.from_("archivos-cotizador").get_public_url(path_sello)
 
+            # Procesar tabla de cuentas bancarias
+            cuentas_list = []
+            for _, r in df_cuentas_edit.iterrows():
+                alias_val = str(r.get("Alias de Cuenta", "")).strip()
+                det_val = str(r.get("Detalles", "")).strip()
+                if alias_val and det_val and not es_vacio_o_none(alias_val):
+                    cuentas_list.append({"alias": alias_val, "detalles": det_val})
+
+            datos_bancarios_json = json.dumps(cuentas_list, ensure_ascii=False)
+
             datos_empresa = {
                 "nombre": nombre, "rif": rif, "direccion": direccion,
-                "datos_bancarios": datos_bancarios, "logo_url": logo_url, "sello_firma_url": sello_url
+                "datos_bancarios": datos_bancarios_json, "logo_url": logo_url, "sello_firma_url": sello_url
             }
 
             if empresa_sel:
@@ -509,7 +569,7 @@ if opcion == "1. Empresas":
             st.rerun()
 
 # ------------------------------------------
-# MÓDULO 2: CLIENTES (NUEVO CRM)
+# MÓDULO 2: CLIENTES (CRM)
 # ------------------------------------------
 elif opcion == "2. Clientes":
     st.title("📇 Gestión de Clientes Guardados")
@@ -603,6 +663,9 @@ elif opcion == "3. Cotizar":
     emp_seleccionada = st.selectbox("Empresa Emisora *", nombres_emp, index=idx_emp)
     empresa = next(e for e in empresas if e["nombre"] == emp_seleccionada)
 
+    # Cuentas bancarias de la empresa seleccionada
+    cuentas_disponibles = obtener_cuentas_bancarias(empresa)
+
     st.divider()
 
     tipo_item_val = datos_cargados.get("tipo_item", "Producto") if datos_cargados else "Producto"
@@ -660,6 +723,23 @@ elif opcion == "3. Cotizar":
             ["N/A", "EXW - Ex Works", "FOB - Free on Board", "FCA - Free Carrier", "CIF - Cost, Insurance & Freight", "CFR - Cost and Freight", "DDP - Delivered Duty Paid", "DAP - Delivered at Place", "CIP - Carriage and Insurance Paid to", "CPT - Carriage Paid To", "DPU - Delivered at Place Unloaded", "FAS - Free Alongside Ship"]
         )
         condiciones_pago = st.text_input("Condiciones de Pago", value=datos_cargados.get("condiciones_pago", "100% Anticipado") if datos_cargados else "100% Anticipado")
+
+    # SELECCIÓN DINÁMICA DE CUENTAS BANCARIAS
+    bancos_texto_para_pdf = ""
+    if cuentas_disponibles:
+        st.subheader("🏦 Cuentas Bancarias para este Documento")
+        opciones_alias = [c["alias"] for c in cuentas_disponibles]
+        cuentas_seleccionadas = st.multiselect(
+            "Selecciona la(s) cuenta(s) bancaria(s) a incluir en el PDF:",
+            options=opciones_alias,
+            default=opciones_alias,
+            help="Puedes elegir una o varias cuentas. Si desmarcas todas, no saldrá el recuadro de datos bancarios en el PDF."
+        )
+        bloques_bancarios = []
+        for c in cuentas_disponibles:
+            if c["alias"] in cuentas_seleccionadas:
+                bloques_bancarios.append(f"[{c['alias']}]\n{c['detalles']}")
+        bancos_texto_para_pdf = "\n\n".join(bloques_bancarios)
 
     st.subheader("📦 Lista de Ítems / Precios")
     lista_uoms = ["Unidades (Uds)", "Par", "m²", "m³ (CBM)", "Paquete (Pkt)", "Bulto", "Caja (CTN)", "Pieza (Pza)", "Set / Juego", "Metro (m)", "Kg", "Tonelada (TN)", "Litro (L)"]
@@ -782,7 +862,8 @@ elif opcion == "3. Cotizar":
                 empresa, cliente_nombre, cliente_rif, cliente_dir, moneda,
                 items_list, subtotal_cotizacion, monto_iva, alicuota_iva, 
                 total_cotizacion, num_cotizacion, tipo_documento, idioma, 
-                validez, incoterm, condiciones_pago, notas, tipo_item
+                validez, incoterm, condiciones_pago, notas, tipo_item,
+                bancos_texto_custom=bancos_texto_para_pdf
             )
             
             path_pdf = f"cotizaciones/{num_cotizacion}_{uuid.uuid4()}.pdf"
@@ -814,7 +895,7 @@ elif opcion == "3. Cotizar":
                 "tipo_item": tipo_item
             }
             
-            # MECANISMO DE GUARDADO CON AUTO-REPARACIÓN
+            # Guardar en Supabase (con sistema de fallbacks automáticos)
             try:
                 if modo_form == "editar" and datos_cargados:
                     supabase.table("cotizaciones").update(datos_cotizacion).eq("id", datos_cargados["id"]).execute()
@@ -822,7 +903,6 @@ elif opcion == "3. Cotizar":
                     supabase.table("cotizaciones").insert(datos_cotizacion).execute()
                 st.success("🎉 ¡Documento guardado con éxito!")
             except Exception as e_db:
-                # Si falla porque la columna tipo_item no existe en Supabase, lo guardamos sin esa columna
                 if "tipo_item" in str(e_db):
                     try:
                         datos_cotizacion_bak = datos_cotizacion.copy()
