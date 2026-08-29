@@ -72,9 +72,12 @@ def limpiar_texto(texto):
     return texto.encode("latin-1", "replace").decode("latin-1")
 
 
-# Helper para calcular cuantas lineas ocupará un texto envuelto en cierto ancho
+# Helper mejorado para calcular cuántas líneas ocupará un texto envuelto en cierto ancho
 def calcular_lineas_multiline(pdf, texto, ancho, font_name="Helvetica", font_style="", font_size=8.5):
+    if es_vacio_o_none(texto):
+        return 1
     pdf.set_font(font_name, font_style, font_size)
+    ancho_util = max(5.0, ancho - 2.0)
     lineas_totales = 0
     for parrafo in str(texto).split("\n"):
         parrafo_limpio = parrafo.strip()
@@ -83,8 +86,19 @@ def calcular_lineas_multiline(pdf, texto, ancho, font_name="Helvetica", font_sty
         words = parrafo_limpio.split(" ")
         linea_actual = ""
         for w in words:
+            w_limpio = limpiar_texto(w)
+            w_width = pdf.get_string_width(w_limpio)
+            
+            # Si una sola palabra sobrepasa el ancho de la celda, fuerza la división
+            if w_width > ancho_util:
+                if linea_actual:
+                    lineas_totales += 1
+                    linea_actual = ""
+                lineas_totales += max(1, int(w_width / ancho_util) + 1)
+                continue
+
             test_line = (linea_actual + " " + w).strip()
-            if pdf.get_string_width(limpiar_texto(test_line)) <= (ancho - 2):
+            if pdf.get_string_width(limpiar_texto(test_line)) <= ancho_util:
                 linea_actual = test_line
             else:
                 lineas_totales += 1
@@ -209,11 +223,11 @@ def crear_pdf_cotizacion(
             pdf.image(logo_bytes, x=15, y=14, w=45)
         except Exception:
             pdf.set_font("Helvetica", "B", 16)
-            pdf.cell(90, 10, limpiar_texto(empresa['nombre'])[:25], ln=False)
+            pdf.cell(90, 10, limpiar_texto(empresa['nombre']), ln=False)
     else:
         pdf.set_font("Helvetica", "B", 16)
         pdf.set_text_color(26, 54, 93)
-        pdf.cell(90, 10, limpiar_texto(empresa['nombre'])[:30], ln=False)
+        pdf.cell(90, 10, limpiar_texto(empresa['nombre']), ln=False)
 
     pdf.set_xy(105, 12)
     pdf.set_font("Helvetica", "B", 16)
@@ -240,64 +254,79 @@ def crear_pdf_cotizacion(
     pdf.line(15, 42, 195, 42)
     pdf.ln(4)
 
-    # 2. Bloque Emisor y Cliente
+    # 2. Bloque Emisor y Cliente (CON ALTURA Y AJUSTE DE TEXTO DINÁMICO)
     y_bloque = pdf.get_y()
     
-    # Emisor
+    # Calcular líneas necesarias para Emisor
+    l_emp_nom = calcular_lineas_multiline(pdf, empresa['nombre'], 81, font_name="Helvetica", font_style="B", font_size=9.5)
+    l_emp_rif = 1 if not es_vacio_o_none(empresa.get('rif')) else 0
+    l_emp_dir = calcular_lineas_multiline(pdf, f"Dir: {empresa.get('direccion', '')}", 81, font_size=8) if not es_vacio_o_none(empresa.get('direccion')) else 0
+    h_emisor = 3 + 4 + (l_emp_nom * 4.5) + (l_emp_rif * 4) + (l_emp_dir * 3.8) + 3
+
+    # Calcular líneas necesarias para Cliente
+    l_cli_nom = calcular_lineas_multiline(pdf, cliente_nombre, 81, font_name="Helvetica", font_style="B", font_size=9.5)
+    l_cli_rif = 1 if not es_vacio_o_none(cliente_rif) else 0
+    l_cli_dir = calcular_lineas_multiline(pdf, f"Dir: {cliente_dir}", 81, font_size=8) if not es_vacio_o_none(cliente_dir) else 0
+    h_cliente = 3 + 4 + (l_cli_nom * 4.5) + (l_cli_rif * 4) + (l_cli_dir * 3.8) + 3
+
+    # Altura del recuadro adaptada a ambos de forma simétrica
+    box_h_cabecera = max(34, h_emisor, h_cliente)
+
+    # Dibujar Recuadros
     pdf.set_fill_color(248, 250, 252)
     pdf.set_draw_color(226, 232, 240)
-    pdf.rect(15, y_bloque, 87, 34, style="FD")
-    
+    pdf.rect(15, y_bloque, 87, box_h_cabecera, style="FD")
+    pdf.rect(108, y_bloque, 87, box_h_cabecera, style="FD")
+
+    # Imprimir Contenido Emisor
     pdf.set_xy(18, y_bloque + 3)
     pdf.set_font("Helvetica", "B", 8.5)
     pdf.set_text_color(26, 54, 93)
-    pdf.cell(80, 4, lbl_emisor, new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(81, 4, lbl_emisor, new_x="LMARGIN", new_y="NEXT")
     
     pdf.set_x(18)
     pdf.set_font("Helvetica", "B", 9.5)
     pdf.set_text_color(30, 41, 59)
-    pdf.cell(80, 4.5, limpiar_texto(empresa['nombre'])[:38], new_x="LMARGIN", new_y="NEXT")
+    pdf.multi_cell(81, 4.5, limpiar_texto(empresa['nombre']))
     
     if not es_vacio_o_none(empresa.get('rif')):
         pdf.set_x(18)
         pdf.set_font("Helvetica", "", 8)
         pdf.set_text_color(71, 85, 105)
-        pdf.cell(80, 4, limpiar_texto(f"RIF/Tax ID: {empresa['rif']}"), new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(81, 4, limpiar_texto(f"RIF/Tax ID: {empresa['rif']}"), new_x="LMARGIN", new_y="NEXT")
     
     if not es_vacio_o_none(empresa.get('direccion')):
         pdf.set_x(18)
         pdf.set_font("Helvetica", "", 8)
         pdf.set_text_color(71, 85, 105)
-        pdf.multi_cell(80, 3.8, limpiar_texto(f"Dir: {empresa['direccion']}")[:80])
+        pdf.multi_cell(81, 3.8, limpiar_texto(f"Dir: {empresa['direccion']}"))
 
-    # Cliente
-    pdf.rect(108, y_bloque, 87, 34, style="FD")
-    
+    # Imprimir Contenido Cliente
     pdf.set_xy(111, y_bloque + 3)
     pdf.set_font("Helvetica", "B", 8.5)
     pdf.set_text_color(26, 54, 93)
-    pdf.cell(80, 4, lbl_cliente, new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(81, 4, lbl_cliente, new_x="LMARGIN", new_y="NEXT")
     
     pdf.set_x(111)
     pdf.set_font("Helvetica", "B", 9.5)
     pdf.set_text_color(30, 41, 59)
-    pdf.cell(80, 4.5, limpiar_texto(cliente_nombre)[:38], new_x="LMARGIN", new_y="NEXT")
+    pdf.multi_cell(81, 4.5, limpiar_texto(cliente_nombre))
     
     if not es_vacio_o_none(cliente_rif):
         pdf.set_x(111)
         pdf.set_font("Helvetica", "", 8)
         pdf.set_text_color(71, 85, 105)
-        pdf.cell(80, 4, limpiar_texto(f"RIF/Tax ID: {cliente_rif}"), new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(81, 4, limpiar_texto(f"RIF/Tax ID: {cliente_rif}"), new_x="LMARGIN", new_y="NEXT")
     
     if not es_vacio_o_none(cliente_dir):
         pdf.set_x(111)
         pdf.set_font("Helvetica", "", 8)
         pdf.set_text_color(71, 85, 105)
-        pdf.multi_cell(80, 3.8, limpiar_texto(f"Dir: {cliente_dir}")[:80])
+        pdf.multi_cell(81, 3.8, limpiar_texto(f"Dir: {cliente_dir}"))
 
-    pdf.set_y(y_bloque + 38)
+    pdf.set_y(y_bloque + box_h_cabecera + 4)
 
-    # 3. Tabla de Productos / Servicios (CON AUTO-AJUSTE MULTI-LÍNEA)
+    # 3. Tabla de Productos / Servicios (TODAS LAS CELDAS CON AUTO-AJUSTE DENTRO DEL BORDE)
     pdf.set_font("Helvetica", "B", 9)
     pdf.set_fill_color(26, 54, 93)
     pdf.set_text_color(255, 255, 255)
@@ -323,7 +352,6 @@ def crear_pdf_cotizacion(
     
     fill = False
     for item in items:
-        # Textos completos sin ningún tipo de recorte
         desc_texto = limpiar_texto(item['descripcion'])
         if es_producto and not es_vacio_o_none(item.get("presentacion")):
             desc_texto += f" [{limpiar_texto(item['presentacion'])}]"
@@ -333,12 +361,15 @@ def crear_pdf_cotizacion(
         prec_texto = f"{item['precio']:,.2f}"
         sub_texto = f"{item['subtotal']:,.2f} "
 
-        # Calcular altura dinámica según el número de líneas
-        n_lineas_desc = calcular_lineas_multiline(pdf, desc_texto, w_desc - 2, font_size=8.5)
-        n_lineas_um = calcular_lineas_multiline(pdf, um_texto, w_um - 2, font_size=8.5) if es_producto else 1
+        # Calcular altura dinámica evaluando TODAS las celdas de la fila
+        l_desc = calcular_lineas_multiline(pdf, desc_texto, w_desc, font_size=8.5)
+        l_um = calcular_lineas_multiline(pdf, um_texto, w_um, font_size=8.5) if es_producto else 1
+        l_cant = calcular_lineas_multiline(pdf, cant_texto, w_cant, font_size=8.5)
+        l_prec = calcular_lineas_multiline(pdf, prec_texto, w_prec, font_size=8.5)
+        l_sub = calcular_lineas_multiline(pdf, sub_texto, w_sub, font_size=8.5)
         
-        n_lineas_max = max(n_lineas_desc, n_lineas_um, 1)
-        h_fila = max(7.5, (n_lineas_max * 4.5) + 2)
+        n_lineas_max = max(l_desc, l_um, l_cant, l_prec, l_sub, 1)
+        h_fila = max(8.0, (n_lineas_max * 4.5) + 2.5)
 
         # Control de salto de página inteligente
         if pdf.get_y() + h_fila > 275:
@@ -366,7 +397,7 @@ def crear_pdf_cotizacion(
         fill_color = (241, 245, 249) if fill else (255, 255, 255)
         pdf.set_fill_color(*fill_color)
 
-        # Dibujar rectángulos de celda con altura calculada h_fila
+        # 1. Dibujar los bordes y fondo exacto de cada celda de la fila
         if es_producto:
             pdf.rect(15, y_inicio, w_desc, h_fila, style="FD")
             pdf.rect(15 + w_desc, y_inicio, w_um, h_fila, style="FD")
@@ -379,38 +410,38 @@ def crear_pdf_cotizacion(
             pdf.rect(15 + w_desc + w_cant, y_inicio, w_prec, h_fila, style="FD")
             pdf.rect(15 + w_desc + w_cant + w_prec, y_inicio, w_sub, h_fila, style="FD")
 
-        # Imprimir contenido envolviendo el texto
+        # 2. Imprimir contenido dentro de los bordes con multi_cell para auto-ajuste perfecto
         pdf.set_xy(16, y_inicio + 1.2)
         pdf.multi_cell(w_desc - 2, 4.2, desc_texto, border=0, align="L")
 
         if es_producto:
-            pdf.set_xy(15 + w_desc, y_inicio + (h_fila - 4.5) / 2)
-            pdf.multi_cell(w_um, 4.5, um_texto, border=0, align="C")
+            pdf.set_xy(15 + w_desc + 1, y_inicio + 1.2)
+            pdf.multi_cell(w_um - 2, 4.2, um_texto, border=0, align="C")
 
-            pdf.set_xy(15 + w_desc + w_um, y_inicio + (h_fila - 4.5) / 2)
-            pdf.cell(w_cant, 4.5, cant_texto, border=0, align="C")
+            pdf.set_xy(15 + w_desc + w_um + 1, y_inicio + 1.2)
+            pdf.multi_cell(w_cant - 2, 4.2, cant_texto, border=0, align="C")
 
-            pdf.set_xy(15 + w_desc + w_um + w_cant, y_inicio + (h_fila - 4.5) / 2)
-            pdf.cell(w_prec, 4.5, prec_texto, border=0, align="R")
+            pdf.set_xy(15 + w_desc + w_um + w_cant + 1, y_inicio + 1.2)
+            pdf.multi_cell(w_prec - 2, 4.2, prec_texto, border=0, align="R")
 
-            pdf.set_xy(15 + w_desc + w_um + w_cant + w_prec, y_inicio + (h_fila - 4.5) / 2)
-            pdf.cell(w_sub, 4.5, sub_texto, border=0, align="R")
+            pdf.set_xy(15 + w_desc + w_um + w_cant + w_prec + 1, y_inicio + 1.2)
+            pdf.multi_cell(w_sub - 2, 4.2, sub_texto, border=0, align="R")
         else:
-            pdf.set_xy(15 + w_desc, y_inicio + (h_fila - 4.5) / 2)
-            pdf.cell(w_cant, 4.5, cant_texto, border=0, align="C")
+            pdf.set_xy(15 + w_desc + 1, y_inicio + 1.2)
+            pdf.multi_cell(w_cant - 2, 4.2, cant_texto, border=0, align="C")
 
-            pdf.set_xy(15 + w_desc + w_cant, y_inicio + (h_fila - 4.5) / 2)
-            pdf.cell(w_prec, 4.5, prec_texto, border=0, align="R")
+            pdf.set_xy(15 + w_desc + w_cant + 1, y_inicio + 1.2)
+            pdf.multi_cell(w_prec - 2, 4.2, prec_texto, border=0, align="R")
 
-            pdf.set_xy(15 + w_desc + w_cant + w_prec, y_inicio + (h_fila - 4.5) / 2)
-            pdf.cell(w_sub, 4.5, sub_texto, border=0, align="R")
+            pdf.set_xy(15 + w_desc + w_cant + w_prec + 1, y_inicio + 1.2)
+            pdf.multi_cell(w_sub - 2, 4.2, sub_texto, border=0, align="R")
 
         pdf.set_y(y_inicio + h_fila)
         fill = not fill
 
     pdf.ln(5)
 
-    # 4. Módulo Bancario y Totales (CUADRO DINÁMICO QUE NUNCA SE DESBORDA)
+    # 4. Módulo Bancario y Totales
     y_seccion4 = pdf.get_y()
     
     if bancos_texto_custom is not None:
@@ -464,16 +495,17 @@ def crear_pdf_cotizacion(
     y_pos_siguiente = max(y_seccion4 + box_h_bancos + 5, pdf.get_y() + 6)
     pdf.set_y(y_pos_siguiente)
 
-    # 5. Módulo Condiciones Comerciales
+    # 5. Módulo Condiciones Comerciales (AJUSTE DINÁMICO DE ALTURA)
     tiene_cond = not es_vacio_o_none(condiciones_pago) or (not es_vacio_o_none(incoterm) and incoterm != "N/A") or not es_vacio_o_none(validez)
     if tiene_cond:
         y_cond = pdf.get_y()
-        lineas_cond = 0
-        if not es_vacio_o_none(condiciones_pago): lineas_cond += 1
-        if not es_vacio_o_none(incoterm) and incoterm != "N/A": lineas_cond += 1
-        if not es_vacio_o_none(validez): lineas_cond += 1
-        
-        box_h_cond = (lineas_cond * 5) + 8
+        texto_cond_total = ""
+        if not es_vacio_o_none(condiciones_pago): texto_cond_total += f"{lbl_cond_pago} {condiciones_pago}\n"
+        if not es_vacio_o_none(incoterm) and incoterm != "N/A": texto_cond_total += f"{lbl_incoterm} {incoterm}\n"
+        if not es_vacio_o_none(validez): texto_cond_total += f"{lbl_validez} {validez}\n"
+
+        total_lineas_cond = calcular_lineas_totales_texto(pdf, texto_cond_total, max_w=174, font_size=8.5)
+        box_h_cond = max(16, (total_lineas_cond * 4.8) + 8)
         
         pdf.set_fill_color(248, 250, 252)
         pdf.set_draw_color(226, 232, 240)
@@ -653,7 +685,6 @@ if opcion == "1. Empresas":
                 )
                 sello_url = supabase.storage.from_("archivos-cotizador").get_public_url(path_sello)
 
-            # Procesar tabla de cuentas bancarias
             cuentas_list = []
             for _, r in df_cuentas_edit.iterrows():
                 alias_val = str(r.get("Alias de Cuenta", "")).strip()
@@ -831,7 +862,6 @@ elif opcion == "3. Cotizar":
         )
         condiciones_pago = st.text_input("Condiciones de Pago", value=datos_cargados.get("condiciones_pago", "100% Anticipado") if datos_cargados else "100% Anticipado")
 
-    # Selección de cuentas bancarias
     bancos_texto_para_pdf = ""
     if cuentas_disponibles:
         st.subheader("🏦 Cuentas Bancarias para este Documento")
