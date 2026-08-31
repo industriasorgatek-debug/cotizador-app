@@ -2067,7 +2067,7 @@ elif opcion == "5. Control de Transferencias":
                 st.rerun()
 
     # ------------------ PESTAÑA 2: HISTORIAL, REPORTES Y EXPORTACIÓN ------------------
-    with tab_historial:
+        with tab_historial:
         try:
             res_tr = supabase.table("transferencias").select("*").order("fecha", desc=True).execute()
             transferencias = res_tr.data
