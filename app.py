@@ -5,7 +5,7 @@ import pandas as pd
 from fpdf import FPDF
 import io
 import urllib.request
-from datetime import datetime
+from datetime import datetime, date
 import json
 
 # Configuración de la página
@@ -22,6 +22,15 @@ except Exception as e:
     st.error("🚨 Error al inicializar la conexión con Supabase:")
     st.write(e)
     st.stop()
+
+
+# Lista de Entidades Predefinidas para Transferencias
+ENTIDADES_PREDEFINIDAS = [
+    "United Hardware Corp",
+    "Convenio RMB Alina",
+    "Sistema Simkin",
+    "HYDE suelen"
+]
 
 
 # Función para determinar si un texto debe considerarse "vacío" u "oculto"
@@ -175,7 +184,6 @@ def obtener_bytes_imagen(url_img):
 
 # =========================================================================
 # MOTOR 1: DISEÑADOR EXCLUSIVO PARA ÓRDENES DE COMPRA (PURCHASE ORDERS)
-# Estilo Lineal, Ejecutivo, Minimalista y Sin Cajas Envolventes
 # =========================================================================
 def crear_pdf_orden_compra(
     empresa, proveedor_nombre, proveedor_rif, proveedor_dir, moneda, items, 
@@ -191,7 +199,6 @@ def crear_pdf_orden_compra(
     es_ingles = (idioma == "Inglés")
     es_producto = (tipo_item == "Producto")
 
-    # Paleta de Colores Exclusiva PO: Carbón Ejecutivo y Acento Esmeralda
     c_dark = (15, 23, 42)       # Slate 900
     c_emerald = (4, 120, 87)    # Emerald 700
     c_line = (203, 213, 225)    # Slate 300
@@ -200,7 +207,7 @@ def crear_pdf_orden_compra(
     logo_bytes = obtener_bytes_imagen(empresa.get("logo_url"))
     sello_bytes = obtener_bytes_imagen(empresa.get("sello_firma_url"))
 
-    # 1. ENCABEZADO LINEAL PO
+    # 1. Encabezado
     if logo_bytes:
         try:
             pdf.image(logo_bytes, x=15, y=14, w=45)
@@ -213,7 +220,6 @@ def crear_pdf_orden_compra(
         pdf.set_text_color(*c_dark)
         pdf.cell(85, 8, limpiar_texto(empresa['nombre']), ln=False)
 
-    # Bloque Título y Número P.O.
     pdf.set_xy(105, 12)
     pdf.set_font("Helvetica", "B", 18)
     pdf.set_text_color(*c_emerald)
@@ -232,17 +238,15 @@ def crear_pdf_orden_compra(
     lbl_fecha = "DATE:" if es_ingles else "FECHA:"
     pdf.cell(90, 4, f"{lbl_fecha} {datetime.now().strftime('%d/%m/%Y')}", align="R", new_x="LMARGIN", new_y="NEXT")
 
-    # Separador sutil
     pdf.set_y(38)
     pdf.set_draw_color(*c_dark)
     pdf.set_line_width(0.6)
     pdf.line(15, 38, 195, 38)
     pdf.ln(4)
 
-    # 2. INFORMACIÓN DE LAS PARTES (LINEAL - SIN CAJAS NI RECUADROS)
+    # 2. Partes
     y_partes = pdf.get_y()
 
-    # Columna Izquierda: COMPRADOR (BUYER)
     pdf.set_xy(15, y_partes)
     pdf.set_font("Helvetica", "B", 8.5)
     pdf.set_text_color(*c_emerald)
@@ -268,7 +272,6 @@ def crear_pdf_orden_compra(
 
     y_pos_izq = pdf.get_y()
 
-    # Columna Derecha: PROVEEDOR (VENDOR)
     pdf.set_xy(108, y_partes)
     pdf.set_font("Helvetica", "B", 8.5)
     pdf.set_text_color(*c_emerald)
@@ -295,17 +298,13 @@ def crear_pdf_orden_compra(
     y_pos_der = pdf.get_y()
     y_max_partes = max(y_pos_izq, y_pos_der, y_partes + 25) + 3
 
-    # 3. FRANJA LOGÍSTICA Y COMERCIAL (TABLA ESTRUCTURADA DE ENVÍO)
+    # 3. Franja Logística
     pdf.set_xy(15, y_max_partes)
     pdf.set_draw_color(*c_line)
     pdf.set_line_width(0.3)
     pdf.line(15, y_max_partes, 195, y_max_partes)
     pdf.ln(1.5)
 
-    # Render de campos logísticos en línea moderna
-    y_log = pdf.get_y()
-    
-    # Fila 1: Incoterm | Términos de Pago | Lead Time
     pdf.set_font("Helvetica", "B", 7.5)
     pdf.set_text_color(*c_text_mut)
     pdf.cell(45, 3.5, "INCOTERM / TERMS:", border=0)
@@ -323,7 +322,6 @@ def crear_pdf_orden_compra(
     pdf.cell(70, 4.5, limpiar_texto(txt_lead), border=0, new_x="LMARGIN", new_y="NEXT")
     pdf.ln(1)
 
-    # Fila 2: Ship To y Puertos (si están presentes)
     if datos_envio and (datos_envio.get("lugar_entrega") or datos_envio.get("puertos")):
         pdf.set_font("Helvetica", "B", 7.5)
         pdf.set_text_color(*c_text_mut)
@@ -341,8 +339,7 @@ def crear_pdf_orden_compra(
     pdf.line(15, pdf.get_y(), 195, pdf.get_y())
     pdf.ln(3)
 
-    # 4. TABLA DE MERCANCÍA / PRODUCTOS (CON ESTILO TÉCNICO PO)
-    # Encabezados: # | ITEM DESCRIPTION & SPECS | UOM | QTY | UNIT RATE | AMOUNT
+    # 4. Tabla de Productos
     pdf.set_font("Helvetica", "B", 8)
     pdf.set_fill_color(*c_dark)
     pdf.set_text_color(255, 255, 255)
@@ -390,7 +387,6 @@ def crear_pdf_orden_compra(
 
         if pdf.get_y() + h_fila > 275:
             pdf.add_page()
-            # Reimprimir encabezado de tabla
             pdf.set_font("Helvetica", "B", 8)
             pdf.set_fill_color(*c_dark)
             pdf.set_text_color(255, 255, 255)
@@ -430,7 +426,6 @@ def crear_pdf_orden_compra(
             pdf.rect(15 + w_num + w_desc + w_cant, y_inicio, w_prec, h_fila, style="FD")
             pdf.rect(15 + w_num + w_desc + w_cant + w_prec, y_inicio, w_sub, h_fila, style="FD")
 
-        # Texto
         pdf.set_xy(15, y_inicio + 1.2)
         pdf.cell(w_num, 4.2, str(idx_item), border=0, align="C")
 
@@ -464,10 +459,9 @@ def crear_pdf_orden_compra(
 
     pdf.ln(4)
 
-    # 5. BLOQUE FINANCIERO E INSTRUCCIONES ESPECIALES (REDDISEÑADO)
+    # 5. Desglose y Totales
     y_fin = pdf.get_y()
 
-    # Lado Izquierdo: Notas e Instrucciones Especiales
     pdf.set_xy(15, y_fin)
     pdf.set_font("Helvetica", "B", 8)
     pdf.set_text_color(*c_emerald)
@@ -480,7 +474,6 @@ def crear_pdf_orden_compra(
     pdf.multi_cell(100, 3.8, limpiar_texto(txt_instrucciones))
     y_fin_izq = pdf.get_y()
 
-    # Lado Derecho: Desglose y Gran Total en Barra Ejecutiva
     pdf.set_xy(122, y_fin)
     pdf.set_font("Helvetica", "", 8.5)
     pdf.set_text_color(*c_text_mut)
@@ -506,7 +499,6 @@ def crear_pdf_orden_compra(
         pdf.set_text_color(*c_dark)
         pdf.cell(40, 5, f"{monto_iva:,.2f}", align="R", new_x="LMARGIN", new_y="NEXT")
 
-    # TOTAL PO (Barra Ejecutiva Destacada)
     pdf.set_x(122)
     pdf.set_fill_color(*c_emerald)
     pdf.set_text_color(255, 255, 255)
@@ -516,14 +508,13 @@ def crear_pdf_orden_compra(
 
     y_sig = max(y_fin_izq, pdf.get_y()) + 10
 
-    # 6. DOBLE VALIDACIÓN AL PIE (ESTÁNDAR PO INTERNACIONAL)
+    # 6. Firmas
     if y_sig + 32 > 280:
         pdf.add_page()
         y_sig = 20
 
     pdf.set_y(y_sig)
     
-    # A la izquierda: Aceptación de Proveedor
     pdf.set_draw_color(*c_line)
     pdf.line(15, y_sig + 16, 85, y_sig + 16)
     pdf.set_xy(15, y_sig + 17)
@@ -531,7 +522,6 @@ def crear_pdf_orden_compra(
     pdf.set_text_color(*c_text_mut)
     pdf.cell(70, 3.5, "Vendor Acceptance / Signature & Date", align="C")
 
-    # A la derecha: Sello / Firma del Comprador
     if sello_bytes:
         try:
             pdf.image(sello_bytes, x=135, y=y_sig - 2, w=42)
@@ -547,7 +537,7 @@ def crear_pdf_orden_compra(
 
 
 # =========================================================================
-# MOTOR 2: DISEÑADOR ESTÁNDAR PARA COTIZACIONES, PROFORMAS Y FACTURAS
+# MOTOR 2: COTIZACIONES, PROFORMAS Y FACTURAS
 # =========================================================================
 def crear_pdf_cotizacion(
     empresa, cliente_nombre, cliente_rif, cliente_dir, moneda, items, 
@@ -586,7 +576,6 @@ def crear_pdf_cotizacion(
     lbl_notas = "REMARKS / COMPLEMENTARY NOTES:" if es_ingles else "NOTAS COMPLEMENTARIAS / OBSERVACIONES:"
     lbl_firma = "Authorized Signature / Stamp" if es_ingles else "Firma / Sello Autorizado"
 
-    # 1. Encabezado y Logo
     logo_bytes = obtener_bytes_imagen(empresa.get("logo_url"))
     sello_bytes = obtener_bytes_imagen(empresa.get("sello_firma_url"))
 
@@ -888,7 +877,7 @@ def crear_pdf_cotizacion(
             
         pdf.set_y(y_cond + box_h_cond + 5)
 
-    # 6. Módulo Notas Complementarias
+    # 6. Módulo Notas
     if not es_vacio_o_none(notas):
         y_notas = pdf.get_y()
         total_lineas_notas = calcular_lineas_totales_texto(pdf, notas, max_w=174, font_size=8.5)
@@ -935,12 +924,15 @@ if "cotiz_edit_data" not in st.session_state:
     st.session_state["cotiz_edit_data"] = None
 if "modo_formulario" not in st.session_state:
     st.session_state["modo_formulario"] = "crear"
+if "transf_edit_data" not in st.session_state:
+    st.session_state["transf_edit_data"] = None
 
 opcion = st.sidebar.radio("Selecciona un módulo:", [
     "1. Empresas", 
     "2. Directorio (Clientes / Proveedores)", 
     "3. Emitir Documento (Cotizar / O.C.)", 
-    "4. Historial de Documentos"
+    "4. Historial de Documentos",
+    "5. Control de Transferencias"
 ])
 
 with st.sidebar.expander("🔍 Verificación de Conexión"):
@@ -986,7 +978,7 @@ if opcion == "1. Empresas":
         direccion = st.text_area("Dirección Fiscal (Escribe 'None' u 'Omitir' para no mostrar en PDF)", value=direccion_val)
         
         st.subheader("🏦 Cuentas Bancarias Registradas")
-        st.caption("Agrega una o varias cuentas bancarias en la tabla. Luego en el cotizador elegirás cuál(es) incluir en cada documento.")
+        st.caption("Agrega una o varias cuentas bancarias en la tabla.")
         
         if not cuentas_existentes:
             df_cuentas_init = pd.DataFrame([
@@ -1003,8 +995,8 @@ if opcion == "1. Empresas":
             df_cuentas_init,
             num_rows="dynamic",
             column_config={
-                "Alias de Cuenta": st.column_config.TextColumn("Alias / Nombre Corto *", help="Ej: Banesco USD, Zelle, Mercantil BS", width="medium"),
-                "Detalles": st.column_config.TextColumn("Datos de la Cuenta (Banco, Nro, SWIFT, Titular)", help="Escribe los datos de la cuenta usando dos puntos (:)", width="large")
+                "Alias de Cuenta": st.column_config.TextColumn("Alias / Nombre Corto *", width="medium"),
+                "Detalles": st.column_config.TextColumn("Datos de la Cuenta (Banco, Nro, SWIFT, Titular)", width="large")
             },
             use_container_width=True,
             key="editor_cuentas_empresa"
@@ -1189,7 +1181,6 @@ elif opcion == "3. Emitir Documento (Cotizar / O.C.)":
 
     st.divider()
 
-    # Empresa emisora / Compradora
     lbl_emp_select = "Empresa Compradora (Buyer) *" if es_orden_compra else "Empresa Emisora *"
     emp_seleccionada = st.selectbox(lbl_emp_select, nombres_emp, index=idx_emp)
     empresa = next(e for e in empresas if e["nombre"] == emp_seleccionada)
@@ -1197,7 +1188,6 @@ elif opcion == "3. Emitir Documento (Cotizar / O.C.)":
 
     st.divider()
 
-    # Datos del Tercero (Cliente o Proveedor)
     lbl_seccion_tercero = "🏭 Datos del Proveedor / Fabricante (Vendor/Supplier)" if es_orden_compra else "👤 Datos del Cliente (Client/Recipient)"
     st.subheader(lbl_seccion_tercero)
     
@@ -1245,7 +1235,6 @@ elif opcion == "3. Emitir Documento (Cotizar / O.C.)":
         cond_default = "30% Deposit, 70% against BL Copy" if es_orden_compra else "100% Anticipado"
         condiciones_pago = st.text_input("Condiciones de Pago", value=datos_cargados.get("condiciones_pago", cond_default) if datos_cargados else cond_default)
 
-    # CAMPOS ESPECIALES PARA ORDEN DE COMPRA INTERNACIONAL
     datos_envio_dict = {}
     if es_orden_compra:
         st.subheader("🚢 Datos de Envío y Logística Internacional (Ship To / Destination)")
@@ -1266,7 +1255,6 @@ elif opcion == "3. Emitir Documento (Cotizar / O.C.)":
                 "fecha_despacho": fecha_despacho if not es_vacio_o_none(fecha_despacho) else ""
             }
 
-    # Cuentas bancarias (solo para cotizaciones y facturas)
     bancos_texto_para_pdf = ""
     if cuentas_disponibles and not es_orden_compra:
         st.subheader("🏦 Cuentas Bancarias a Mostrar en el PDF")
@@ -1274,8 +1262,7 @@ elif opcion == "3. Emitir Documento (Cotizar / O.C.)":
         cuentas_seleccionadas = st.multiselect(
             "Selecciona la(s) cuenta(s) a incluir:",
             options=opciones_alias,
-            default=opciones_alias,
-            help="Desmarca todas si no deseas mostrar el recuadro bancario."
+            default=opciones_alias
         )
         bloques_bancarios = []
         for c in cuentas_disponibles:
@@ -1285,24 +1272,7 @@ elif opcion == "3. Emitir Documento (Cotizar / O.C.)":
 
     st.subheader("📦 Lista de Ítems / Precios")
     
-    # LISTA INTERNACIONAL DE UNIDADES DE MEDIDA (UOM)
-    lista_uoms = [
-        "PCS",   # Pieces / Piezas
-        "UNT",   # Units / Unidades
-        "SET",   # Set / Juego
-        "CTN",   # Cartons / Cajas Master
-        "BOX",   # Boxes / Cajas
-        "PKT",   # Packets / Paquetes
-        "PR",    # Pairs / Pares
-        "KG",    # Kilograms / Kilos
-        "TON",   # Metric Tons / Toneladas
-        "M",     # Meters / Metros
-        "M²",    # Square Meters / Metros Cuadrados
-        "CBM",   # Cubic Meters / Metros Cúbicos
-        "LTR",   # Liters / Litros
-        "ROL",   # Rolls / Rollos
-        "BAG"    # Bags / Sacos / Bolsas
-    ]
+    lista_uoms = ["PCS", "UNT", "SET", "CTN", "BOX", "PKT", "PR", "KG", "TON", "M", "M²", "CBM", "LTR", "ROL", "BAG"]
 
     if datos_cargados and "items" in datos_cargados:
         items_cargados = []
@@ -1347,7 +1317,7 @@ elif opcion == "3. Emitir Documento (Cotizar / O.C.)":
             df_inicial,
             num_rows="dynamic",
             column_config={
-                "UOM": st.column_config.SelectboxColumn("UOM", options=lista_uoms, default="PCS", width="small", help="Unidad de Medida"),
+                "UOM": st.column_config.SelectboxColumn("UOM", options=lista_uoms, default="PCS", width="small"),
                 "Cantidad": st.column_config.NumberColumn("Cantidad", min_value=1, step=1, default=1),
                 "Precio Unitario": st.column_config.NumberColumn("Precio Unitario", min_value=0.0, format="%.2f", default=0.0),
             },
@@ -1386,7 +1356,7 @@ elif opcion == "3. Emitir Documento (Cotizar / O.C.)":
     with col_i2:
         notas_def = datos_cargados.get("notas", "") if datos_cargados else ""
         lbl_notas_box = "Instrucciones de Compra / Observaciones" if es_orden_compra else "Notas Complementarias / Observaciones"
-        notas = st.text_area(lbl_notas_box, value=notas_def, help="Escribe 'None' u 'Omitir' para no incluir este bloque")
+        notas = st.text_area(lbl_notas_box, value=notas_def)
 
     st.divider()
 
@@ -1423,7 +1393,6 @@ elif opcion == "3. Emitir Documento (Cotizar / O.C.)":
                         "subtotal": float(row["Subtotal"])
                     })
                 
-            # SELECCIÓN DINÁMICA DEL MOTOR DE PDF
             if es_orden_compra:
                 pdf_bytes = crear_pdf_orden_compra(
                     empresa, cliente_nombre, cliente_rif, cliente_dir, moneda,
@@ -1491,7 +1460,6 @@ elif opcion == "3. Emitir Documento (Cotizar / O.C.)":
                 else:
                     st.error(f"🚨 Error al guardar en Base de Datos: {e_db}")
 
-            # Limpiar estado
             st.session_state["cotiz_edit_data"] = None
             st.session_state["modo_formulario"] = "crear"
 
@@ -1587,14 +1555,12 @@ elif opcion == "4. Historial de Documentos":
                     if st.button("✏️ Editar Documento", key=f"edit_{q['id']}", use_container_width=True):
                         st.session_state["cotiz_edit_data"] = q
                         st.session_state["modo_formulario"] = "editar"
-                        st.info("Cargando datos... ve a la pestaña '3. Emitir Documento' en el menú.")
                         st.rerun()
 
                 with col_b2:
                     if st.button("📋 Duplicar", key=f"dup_{q['id']}", use_container_width=True):
                         st.session_state["cotiz_edit_data"] = q
                         st.session_state["modo_formulario"] = "duplicar"
-                        st.info("Duplicando datos... ve a la pestaña '3. Emitir Documento' en el menú.")
                         st.rerun()
 
                 with col_b3:
@@ -1605,3 +1571,256 @@ elif opcion == "4. Historial de Documentos":
                             st.rerun()
                         except Exception as e_del:
                             st.error(f"Error al eliminar: {e_del}")
+
+# -------------------------------------------------------------------------
+# MÓDULO 5: CONTROL Y REGISTRO DE TRANSFERENCIAS (NUEVO)
+# -------------------------------------------------------------------------
+elif opcion == "5. Control de Transferencias":
+    st.title("💸 Control de Transferencias y Órdenes de Pago")
+    st.write("Registra, busca y organiza las transferencias realizadas o solicitadas por tu jefatura.")
+
+    # Obtener listas maestras para los selectores
+    try:
+        res_emp = supabase.table("empresas").select("nombre").execute()
+        lista_empresas_db = [e["nombre"] for e in res_emp.data]
+        res_cli = supabase.table("clientes").select("nombre").execute()
+        lista_clientes_db = [c["nombre"] for c in res_cli.data]
+    except Exception:
+        lista_empresas_db = []
+        lista_clientes_db = []
+
+    # Lista unificada de orígenes y destinos sugeridos
+    entidades_base = list(dict.fromkeys(ENTIDADES_PREDEFINIDAS + lista_empresas_db + lista_clientes_db))
+    opciones_select = ["➕ Escribir Manualmente / Otro"] + entidades_base
+
+    # Pestañas: Registrar Nueva vs Historial/Reportes
+    tab_nueva, tab_historial = st.tabs(["➕ Registrar / Ordenar Transferencia", "📊 Historial y Comprobantes"])
+
+    # ------------------ PESTAÑA 1: FORMULARIO DE TRANSFERENCIA ------------------
+    with tab_nueva:
+        transf_edit = st.session_state.get("transf_edit_data")
+        if transf_edit:
+            st.info(f"✏️ Editando registro de transferencia ID: `{transf_edit['id'][:8]}`")
+
+        with st.form("form_transferencia", clear_on_submit=False):
+            col_t1, col_t2 = st.columns(2)
+
+            # ORIGEN (DESDE DÓNDE)
+            with col_t1:
+                st.markdown("### 📤 Emisor / Origen (¿Desde dónde?)")
+                origen_def = transf_edit.get("origen", "") if transf_edit else ""
+                idx_orig = 0
+                if origen_def in opciones_select:
+                    idx_orig = opciones_select.index(origen_def)
+
+                sel_origen = st.selectbox("Seleccionar Origen:", opciones_select, index=idx_orig, key="sel_origen")
+                if sel_origen == "➕ Escribir Manualmente / Otro":
+                    origen_final = st.text_input("Escribe el nombre del Origen / Cuenta:", value=origen_def if origen_def not in opciones_select else "")
+                else:
+                    origen_final = sel_origen
+
+            # DESTINO (A QUIÉN)
+            with col_t2:
+                st.markdown("### 📥 Beneficiario / Destino (¿A quién?)")
+                destino_def = transf_edit.get("destino", "") if transf_edit else ""
+                idx_dest = 0
+                if destino_def in opciones_select:
+                    idx_dest = opciones_select.index(destino_def)
+
+                sel_destino = st.selectbox("Seleccionar Destino:", opciones_select, index=idx_dest, key="sel_destino")
+                if sel_destino == "➕ Escribir Manualmente / Otro":
+                    destino_final = st.text_input("Escribe el nombre del Beneficiario / Destino:", value=destino_def if destino_def not in opciones_select else "")
+                else:
+                    destino_final = sel_destino
+
+            st.divider()
+
+            # DETALLES FINANCIEROS
+            col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+            with col_m1:
+                fecha_val = datetime.strptime(transf_edit["fecha"], "%Y-%m-%d").date() if (transf_edit and transf_edit.get("fecha")) else date.today()
+                fecha_transf = st.date_input("Fecha *", value=fecha_val)
+            with col_m2:
+                monedas_list = ["USD ($)", "RMB (¥)", "EUR (€)", "VES (Bs.)", "USDT (Crypto)"]
+                mon_idx = 0
+                if transf_edit and transf_edit.get("moneda") in monedas_list:
+                    mon_idx = monedas_list.index(transf_edit.get("moneda"))
+                moneda_transf = st.selectbox("Moneda *", monedas_list, index=mon_idx)
+            with col_m3:
+                monto_val = float(transf_edit.get("monto", 0.0)) if transf_edit else 0.0
+                monto_transf = st.number_input("Monto *", min_value=0.0, value=monto_val, step=100.0, format="%.2f")
+            with col_m4:
+                estados_list = ["Completada", "Pendiente / Por Pagar", "En Proceso", "Cancelada"]
+                est_idx = 0
+                if transf_edit and transf_edit.get("estado") in estados_list:
+                    est_idx = estados_list.index(transf_edit.get("estado"))
+                estado_transf = st.selectbox("Estado *", estados_list, index=est_idx)
+
+            col_n1, col_n2 = st.columns(2)
+            with col_n1:
+                ref_val = transf_edit.get("referencia", "") if transf_edit else ""
+                referencia_transf = st.text_input("N° de Referencia / ID de Transacción:", value=ref_val, placeholder="Ej: 9837482910 o Ref Zelle")
+                obs_val = transf_edit.get("observaciones", "") if transf_edit else ""
+                obs_transf = st.text_area("Concepto / Observaciones / Instrucciones de tu jefe:", value=obs_val, placeholder="Ej: Pago anticipo orden #402 / Cuenta Banesco Panamá")
+
+            with col_n2:
+                st.markdown("📎 **Comprobante de Transferencia (Capture / Recibo)**")
+                if transf_edit and transf_edit.get("comprobante_url"):
+                    st.success("✅ Este registro ya tiene un comprobante cargado.")
+                    st.link_button("👁️ Ver Comprobante Actual", transf_edit["comprobante_url"])
+                
+                archivo_comprobante = st.file_uploader("Subir nuevo comprobante (PNG, JPG, PDF)", type=["png", "jpg", "jpeg", "pdf"], key="file_comp")
+
+            guardar_t = st.form_submit_button("💾 Guardar Registro de Transferencia", use_container_width=True, type="primary")
+
+        if guardar_t:
+            if not origen_final or not destino_final or monto_transf <= 0:
+                st.error("⚠️ Por favor completa el Origen, Destino y un Monto mayor a 0.")
+            else:
+                comprobante_url = transf_edit.get("comprobante_url") if transf_edit else None
+
+                # Subida de archivo al storage si se cargó uno nuevo
+                if archivo_comprobante:
+                    ext = archivo_comprobante.name.split(".")[-1]
+                    path_comp = f"comprobantes/{fecha_transf}_{uuid.uuid4()}.{ext}"
+                    supabase.storage.from_("archivos-cotizador").upload(
+                        path=path_comp, file=archivo_comprobante.getvalue(),
+                        file_options={"content-type": archivo_comprobante.type, "upsert": "true"}
+                    )
+                    comprobante_url = supabase.storage.from_("archivos-cotizador").get_public_url(path_comp)
+
+                datos_t = {
+                    "fecha": str(fecha_transf),
+                    "origen": origen_final.strip(),
+                    "destino": destino_final.strip(),
+                    "monto": float(monto_transf),
+                    "moneda": moneda_transf,
+                    "referencia": referencia_transf.strip(),
+                    "estado": estado_transf,
+                    "comprobante_url": comprobante_url,
+                    "observaciones": obs_transf.strip()
+                }
+
+                try:
+                    if transf_edit:
+                        supabase.table("transferencias").update(datos_t).eq("id", transf_edit["id"]).execute()
+                        st.success("🎉 ¡Transferencia actualizada correctamente!")
+                    else:
+                        supabase.table("transferencias").insert(datos_t).execute()
+                        st.success("🎉 ¡Transferencia registrada con éxito!")
+                    st.session_state["transf_edit_data"] = None
+                    st.rerun()
+                except Exception as e_t:
+                    st.error(f"🚨 Error al guardar en base de datos: {e_t}")
+
+        if transf_edit:
+            if st.button("❌ Cancelar Edición de Transferencia"):
+                st.session_state["transf_edit_data"] = None
+                st.rerun()
+
+    # ------------------ PESTAÑA 2: HISTORIAL Y REPORTES ------------------
+    with tab_historial:
+        try:
+            res_tr = supabase.table("transferencias").select("*").order("fecha", desc=True).execute()
+            transferencias = res_tr.data
+        except Exception as e:
+            st.error("🚨 Error al consultar la tabla 'transferencias'. ¿Ejecutaste el SQL en Supabase?")
+            st.write(e)
+            transferencias = []
+
+        if not transferencias:
+            st.info("ℹ️ Aún no hay transferencias registradas.")
+        else:
+            # FILTROS
+            st.subheader("🔍 Filtros de Búsqueda")
+            col_f1, col_f2, col_f3 = st.columns(3)
+
+            with col_f1:
+                busq_t = st.text_input("Buscar por palabra clave:", placeholder="Ej: United, Alina, Simkin, Suelen, N° Ref...")
+            
+            with col_f2:
+                # Todas las entidades únicas existentes en la BD
+                todas_entidades = sorted(list(set([t["origen"] for t in transferencias] + [t["destino"] for t in transferencias])))
+                filtro_entidad = st.selectbox("Filtrar por Proveedor / Cliente:", ["Todas"] + todas_entidades)
+
+            with col_f3:
+                filtro_estado = st.selectbox("Filtrar por Estado:", ["Todos", "Completada", "Pendiente / Por Pagar", "En Proceso", "Cancelada"])
+
+            # Aplicar filtros
+            tf_filtradas = transferencias
+
+            if busq_t:
+                b_low = busq_t.lower()
+                tf_filtradas = [
+                    t for t in tf_filtradas
+                    if b_low in str(t.get("origen", "")).lower()
+                    or b_low in str(t.get("destino", "")).lower()
+                    or b_low in str(t.get("referencia", "")).lower()
+                    or b_low in str(t.get("observaciones", "")).lower()
+                ]
+
+            if filtro_entidad != "Todas":
+                tf_filtradas = [t for t in tf_filtradas if t.get("origen") == filtro_entidad or t.get("destino") == filtro_entidad]
+
+            if filtro_estado != "Todos":
+                tf_filtradas = [t for t in tf_filtradas if t.get("estado") == filtro_estado]
+
+            # TOTALES / MÉTRICAS FINANCIERAS
+            st.divider()
+            df_tf = pd.DataFrame(tf_filtradas)
+            
+            if not df_tf.empty:
+                st.markdown("#### 📈 Totales Transferidos (Según los filtros seleccionados):")
+                monedas_encontradas = df_tf["moneda"].unique()
+                cols_met = st.columns(len(monedas_encontradas) if len(monedas_encontradas) > 0 else 1)
+                for idx_m, m_nom in enumerate(monedas_encontradas):
+                    suma_m = df_tf[df_tf["moneda"] == m_nom]["monto"].sum()
+                    with cols_met[idx_m]:
+                        st.metric(label=f"Total {m_nom}", value=f"{suma_m:,.2f}")
+
+            st.divider()
+            st.caption(f"Mostrando **{len(tf_filtradas)}** transferencias.")
+
+            # LISTA DE REGISTROS
+            for tr in tf_filtradas:
+                # Color del estado
+                badge_color = "🟢" if tr.get("estado") == "Completada" else ("🟡" if "Pendiente" in tr.get("estado", "") else "🔵")
+                titulo_tr = f"{badge_color} {tr.get('fecha')} | {tr.get('origen')} ➡️ {tr.get('destino')} | {tr.get('moneda')} {tr.get('monto', 0):,.2f}"
+
+                with st.expander(titulo_tr):
+                    col_r1, col_r2, col_r3 = st.columns([2, 2, 1])
+
+                    with col_r1:
+                        st.write(f"**📤 Origen:** {tr.get('origen')}")
+                        st.write(f"**📥 Destino:** {tr.get('destino')}")
+                        st.write(f"**📅 Fecha:** {tr.get('fecha')}")
+
+                    with col_r2:
+                        st.write(f"**📌 Estado:** `{tr.get('estado')}`")
+                        st.write(f"**🔢 Referencia:** {tr.get('referencia') if tr.get('referencia') else 'Sin referencia'}")
+                        if tr.get("observaciones"):
+                            st.write(f"**📝 Notas:** {tr.get('observaciones')}")
+
+                    with col_r3:
+                        st.markdown(f"### `{tr.get('moneda')} {tr.get('monto', 0):,.2f}`")
+                        if tr.get("comprobante_url"):
+                            st.link_button("📎 Ver Comprobante", tr["comprobante_url"], use_container_width=True)
+                        else:
+                            st.caption("Sin comprobante adjunto")
+
+                    st.divider()
+                    col_act1, col_act2 = st.columns(2)
+
+                    with col_act1:
+                        if st.button("✏️ Editar Registro", key=f"edit_tr_{tr['id']}", use_container_width=True):
+                            st.session_state["transf_edit_data"] = tr
+                            st.rerun()
+
+                    with col_act2:
+                        if st.button("🗑️ Eliminar", key=f"del_tr_{tr['id']}", type="secondary", use_container_width=True):
+                            try:
+                                supabase.table("transferencias").delete().eq("id", tr["id"]).execute()
+                                st.success("Registro de transferencia eliminado.")
+                                st.rerun()
+                            except Exception as e_del_tr:
+                                st.error(f"Error al eliminar: {e_del_tr}")
