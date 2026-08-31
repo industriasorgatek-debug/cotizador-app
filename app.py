@@ -82,7 +82,7 @@ def obtener_urls_comprobantes(raw):
 def limpiar_texto(texto):
     if es_vacio_o_none(texto):
         return ""
-    texto = str(texto)
+    texto = str(texto).replace("\r\n", "\n").replace("\r", "\n")
     reemplazos = {
         "€": "EUR",
         "¥": "RMB",
@@ -98,38 +98,46 @@ def limpiar_texto(texto):
     return texto.encode("latin-1", "replace").decode("latin-1")
 
 
-# Helper para calcular cuántas líneas ocupará un texto envuelto en cierto ancho
+# Helper perfeccionado para calcular con total precisión cuántas líneas ocupará un texto envuelto
 def calcular_lineas_multiline(pdf, texto, ancho, font_name="Helvetica", font_style="", font_size=8.5):
     if es_vacio_o_none(texto):
         return 1
     pdf.set_font(font_name, font_style, font_size)
-    ancho_util = max(5.0, ancho - 2.0)
+    
+    # Ancho efectivo considerando márgenes internos de celda de FPDF
+    ancho_util = max(5.0, ancho - 4.5)
+    
+    texto_norm = str(texto).replace("\r\n", "\n").replace("\r", "\n")
     lineas_totales = 0
-    for parrafo in str(texto).split("\n"):
+    
+    for parrafo in texto_norm.split("\n"):
         parrafo_limpio = parrafo.strip()
         if not parrafo_limpio:
+            lineas_totales += 1
             continue
-        words = parrafo_limpio.split(" ")
-        linea_actual = ""
-        for w in words:
-            w_limpio = limpiar_texto(w)
-            w_width = pdf.get_string_width(w_limpio)
             
-            if w_width > ancho_util:
-                if linea_actual:
-                    lineas_totales += 1
-                    linea_actual = ""
-                lineas_totales += max(1, int(w_width / ancho_util) + 1)
+        palabras = parrafo_limpio.split(" ")
+        linea_actual = ""
+        for w in palabras:
+            if not w:
                 continue
-
-            test_line = (linea_actual + " " + w).strip()
-            if pdf.get_string_width(limpiar_texto(test_line)) <= ancho_util:
+            w_limpio = limpiar_texto(w)
+            test_line = (linea_actual + " " + w_limpio).strip()
+            
+            if pdf.get_string_width(test_line) <= ancho_util:
                 linea_actual = test_line
             else:
-                lineas_totales += 1
-                linea_actual = w
+                if linea_actual:
+                    lineas_totales += 1
+                w_w = pdf.get_string_width(w_limpio)
+                if w_w > ancho_util:
+                    lineas_totales += max(1, int(w_w / ancho_util))
+                    linea_actual = ""
+                else:
+                    linea_actual = w_limpio
         if linea_actual:
             lineas_totales += 1
+            
     return max(1, lineas_totales)
 
 
@@ -138,7 +146,8 @@ def calcular_lineas_totales_texto(pdf, texto, max_w, font_size=8.5):
     if es_vacio_o_none(texto):
         return 0
     lineas_count = 0
-    for linea in str(texto).split("\n"):
+    texto_norm = str(texto).replace("\r\n", "\n").replace("\r", "\n")
+    for linea in texto_norm.split("\n"):
         linea = linea.strip()
         if not linea or es_vacio_o_none(linea):
             continue
@@ -147,7 +156,7 @@ def calcular_lineas_totales_texto(pdf, texto, max_w, font_size=8.5):
             clave = partes[0].strip() + ":"
             valor = " " + partes[1].strip()
             pdf.set_font("Helvetica", "B", font_size)
-            w_clave = pdf.get_string_width(limpiar_texto(clave)) + 1.5
+            w_clave = pdf.get_string_width(limpiar_texto(clave)) + 2.0
             if w_clave > (max_w - 10):
                 lineas_count += calcular_lineas_multiline(pdf, linea, max_w, font_size=font_size)
             else:
@@ -162,7 +171,8 @@ def calcular_lineas_totales_texto(pdf, texto, max_w, font_size=8.5):
 def render_texto_con_dospuntos(pdf, texto, x_start, max_w, font_size=8.5, line_h=4.5):
     if es_vacio_o_none(texto):
         return
-    for linea in str(texto).split("\n"):
+    texto_norm = str(texto).replace("\r\n", "\n").replace("\r", "\n")
+    for linea in texto_norm.split("\n"):
         linea = linea.strip()
         if not linea or es_vacio_o_none(linea):
             continue
@@ -173,7 +183,7 @@ def render_texto_con_dospuntos(pdf, texto, x_start, max_w, font_size=8.5, line_h
             
             pdf.set_x(x_start)
             pdf.set_font("Helvetica", "B", font_size)
-            w_clave = pdf.get_string_width(limpiar_texto(clave)) + 1.5
+            w_clave = pdf.get_string_width(limpiar_texto(clave)) + 2.0
             
             if w_clave > (max_w - 10):
                 pdf.multi_cell(max_w, line_h, limpiar_texto(linea))
@@ -356,7 +366,7 @@ def crear_pdf_orden_compra(
     pdf.line(15, pdf.get_y(), 195, pdf.get_y())
     pdf.ln(3)
 
-    # 4. Tabla de Productos
+    # 4. Tabla de Productos (Ajuste Perfecto)
     pdf.set_font("Helvetica", "B", 8)
     pdf.set_fill_color(*c_dark)
     pdf.set_text_color(255, 255, 255)
@@ -400,7 +410,8 @@ def crear_pdf_orden_compra(
         l_sub = calcular_lineas_multiline(pdf, sub_texto, w_sub, font_size=8.5)
         
         n_lineas_max = max(l_desc, l_cant, l_prec, l_sub, 1)
-        h_fila = max(7.5, (n_lineas_max * 4.2) + 2.5)
+        # Altura de fila calculada con margen de seguridad absoluto (+ 4.0 mm)
+        h_fila = max(8.0, (n_lineas_max * 4.0) + 4.0)
 
         if pdf.get_y() + h_fila > 275:
             pdf.add_page()
@@ -443,33 +454,33 @@ def crear_pdf_orden_compra(
             pdf.rect(15 + w_num + w_desc + w_cant, y_inicio, w_prec, h_fila, style="FD")
             pdf.rect(15 + w_num + w_desc + w_cant + w_prec, y_inicio, w_sub, h_fila, style="FD")
 
-        pdf.set_xy(15, y_inicio + 1.2)
-        pdf.cell(w_num, 4.2, str(idx_item), border=0, align="C")
+        pdf.set_xy(15, y_inicio + 2.0)
+        pdf.cell(w_num, 4.0, str(idx_item), border=0, align="C")
 
-        pdf.set_xy(15 + w_num + 1, y_inicio + 1.2)
-        pdf.multi_cell(w_desc - 2, 4.2, desc_texto, border=0, align="L")
+        pdf.set_xy(15 + w_num + 1.5, y_inicio + 2.0)
+        pdf.multi_cell(w_desc - 3.0, 4.0, desc_texto, border=0, align="L")
 
         if es_producto:
-            pdf.set_xy(15 + w_num + w_desc, y_inicio + 1.2)
-            pdf.cell(w_uom, 4.2, uom_texto, border=0, align="C")
+            pdf.set_xy(15 + w_num + w_desc, y_inicio + 2.0)
+            pdf.cell(w_uom, 4.0, uom_texto, border=0, align="C")
 
-            pdf.set_xy(15 + w_num + w_desc + w_uom, y_inicio + 1.2)
-            pdf.cell(w_cant, 4.2, cant_texto, border=0, align="C")
+            pdf.set_xy(15 + w_num + w_desc + w_uom, y_inicio + 2.0)
+            pdf.cell(w_cant, 4.0, cant_texto, border=0, align="C")
 
-            pdf.set_xy(15 + w_num + w_desc + w_uom + w_cant, y_inicio + 1.2)
-            pdf.cell(w_prec - 1, 4.2, prec_texto, border=0, align="R")
+            pdf.set_xy(15 + w_num + w_desc + w_uom + w_cant, y_inicio + 2.0)
+            pdf.cell(w_prec - 1.5, 4.0, prec_texto, border=0, align="R")
 
-            pdf.set_xy(15 + w_num + w_desc + w_uom + w_cant + w_prec, y_inicio + 1.2)
-            pdf.cell(w_sub - 1, 4.2, sub_texto, border=0, align="R")
+            pdf.set_xy(15 + w_num + w_desc + w_uom + w_cant + w_prec, y_inicio + 2.0)
+            pdf.cell(w_sub - 1.5, 4.0, sub_texto, border=0, align="R")
         else:
-            pdf.set_xy(15 + w_num + w_desc, y_inicio + 1.2)
-            pdf.cell(w_cant, 4.2, cant_texto, border=0, align="C")
+            pdf.set_xy(15 + w_num + w_desc, y_inicio + 2.0)
+            pdf.cell(w_cant, 4.0, cant_texto, border=0, align="C")
 
-            pdf.set_xy(15 + w_num + w_desc + w_cant, y_inicio + 1.2)
-            pdf.cell(w_prec - 1, 4.2, prec_texto, border=0, align="R")
+            pdf.set_xy(15 + w_num + w_desc + w_cant, y_inicio + 2.0)
+            pdf.cell(w_prec - 1.5, 4.0, prec_texto, border=0, align="R")
 
-            pdf.set_xy(15 + w_num + w_desc + w_cant + w_prec, y_inicio + 1.2)
-            pdf.cell(w_sub - 1, 4.2, sub_texto, border=0, align="R")
+            pdf.set_xy(15 + w_num + w_desc + w_cant + w_prec, y_inicio + 2.0)
+            pdf.cell(w_sub - 1.5, 4.0, sub_texto, border=0, align="R")
 
         pdf.set_y(y_inicio + h_fila)
         fill = not fill
@@ -638,12 +649,12 @@ def crear_pdf_cotizacion(
     l_emp_nom = calcular_lineas_multiline(pdf, empresa['nombre'], 81, font_name="Helvetica", font_style="B", font_size=9.5)
     l_emp_rif = 1 if not es_vacio_o_none(empresa.get('rif')) else 0
     l_emp_dir = calcular_lineas_multiline(pdf, f"Dir: {empresa.get('direccion', '')}", 81, font_size=8) if not es_vacio_o_none(empresa.get('direccion')) else 0
-    h_emisor = 3 + 4 + (l_emp_nom * 4.5) + (l_emp_rif * 4) + (l_emp_dir * 3.8) + 3
+    h_emisor = 4 + (l_emp_nom * 4.5) + (l_emp_rif * 4.0) + (l_emp_dir * 4.0) + 4
 
     l_cli_nom = calcular_lineas_multiline(pdf, cliente_nombre, 81, font_name="Helvetica", font_style="B", font_size=9.5)
     l_cli_rif = 1 if not es_vacio_o_none(cliente_rif) else 0
     l_cli_dir = calcular_lineas_multiline(pdf, f"Dir: {cliente_dir}", 81, font_size=8) if not es_vacio_o_none(cliente_dir) else 0
-    h_cliente = 3 + 4 + (l_cli_nom * 4.5) + (l_cli_rif * 4) + (l_cli_dir * 3.8) + 3
+    h_cliente = 4 + (l_cli_nom * 4.5) + (l_cli_rif * 4.0) + (l_cli_dir * 4.0) + 4
 
     box_h_cabecera = max(34, h_emisor, h_cliente)
 
@@ -698,7 +709,7 @@ def crear_pdf_cotizacion(
 
     pdf.set_y(y_bloque + box_h_cabecera + 4)
 
-    # 3. Tabla de Productos / Servicios
+    # 3. Tabla de Productos / Servicios (Ajuste Perfecto)
     pdf.set_font("Helvetica", "B", 9)
     pdf.set_fill_color(26, 54, 93)
     pdf.set_text_color(255, 255, 255)
@@ -726,7 +737,7 @@ def crear_pdf_cotizacion(
     for item in items:
         desc_texto = limpiar_texto(item['descripcion'])
         if es_producto and not es_vacio_o_none(item.get("presentacion")):
-            desc_texto += f" [{limpiar_texto(item['presentacion'])}]"
+            desc_texto += f"\n[Specs/SKU: {limpiar_texto(item['presentacion'])}]"
             
         um_texto = limpiar_texto(item.get("uom", "PCS")) if es_producto else ""
         cant_texto = str(item['cantidad'])
@@ -740,7 +751,8 @@ def crear_pdf_cotizacion(
         l_sub = calcular_lineas_multiline(pdf, sub_texto, w_sub, font_size=8.5)
         
         n_lineas_max = max(l_desc, l_um, l_cant, l_prec, l_sub, 1)
-        h_fila = max(8.0, (n_lineas_max * 4.5) + 2.5)
+        # Altura de fila calculada con margen de seguridad absoluto (+ 4.0 mm)
+        h_fila = max(8.0, (n_lineas_max * 4.0) + 4.0)
 
         if pdf.get_y() + h_fila > 275:
             pdf.add_page()
@@ -779,30 +791,30 @@ def crear_pdf_cotizacion(
             pdf.rect(15 + w_desc + w_cant, y_inicio, w_prec, h_fila, style="FD")
             pdf.rect(15 + w_desc + w_cant + w_prec, y_inicio, w_sub, h_fila, style="FD")
 
-        pdf.set_xy(16, y_inicio + 1.2)
-        pdf.multi_cell(w_desc - 2, 4.2, desc_texto, border=0, align="L")
+        pdf.set_xy(16.5, y_inicio + 2.0)
+        pdf.multi_cell(w_desc - 3.0, 4.0, desc_texto, border=0, align="L")
 
         if es_producto:
-            pdf.set_xy(15 + w_desc + 1, y_inicio + 1.2)
-            pdf.multi_cell(w_um - 2, 4.2, um_texto, border=0, align="C")
+            pdf.set_xy(15 + w_desc, y_inicio + 2.0)
+            pdf.multi_cell(w_um, 4.0, um_texto, border=0, align="C")
 
-            pdf.set_xy(15 + w_desc + w_um + 1, y_inicio + 1.2)
-            pdf.multi_cell(w_cant - 2, 4.2, cant_texto, border=0, align="C")
+            pdf.set_xy(15 + w_desc + w_um, y_inicio + 2.0)
+            pdf.multi_cell(w_cant, 4.0, cant_texto, border=0, align="C")
 
-            pdf.set_xy(15 + w_desc + w_um + w_cant + 1, y_inicio + 1.2)
-            pdf.multi_cell(w_prec - 2, 4.2, prec_texto, border=0, align="R")
+            pdf.set_xy(15 + w_desc + w_um + w_cant, y_inicio + 2.0)
+            pdf.multi_cell(w_prec - 1.5, 4.0, prec_texto, border=0, align="R")
 
-            pdf.set_xy(15 + w_desc + w_um + w_cant + w_prec + 1, y_inicio + 1.2)
-            pdf.multi_cell(w_sub - 2, 4.2, sub_texto, border=0, align="R")
+            pdf.set_xy(15 + w_desc + w_um + w_cant + w_prec, y_inicio + 2.0)
+            pdf.multi_cell(w_sub - 1.5, 4.0, sub_texto, border=0, align="R")
         else:
-            pdf.set_xy(15 + w_desc + 1, y_inicio + 1.2)
-            pdf.multi_cell(w_cant - 2, 4.2, cant_texto, border=0, align="C")
+            pdf.set_xy(15 + w_desc, y_inicio + 2.0)
+            pdf.multi_cell(w_cant, 4.0, cant_texto, border=0, align="C")
 
-            pdf.set_xy(15 + w_desc + w_cant + 1, y_inicio + 1.2)
-            pdf.multi_cell(w_prec - 2, 4.2, prec_texto, border=0, align="R")
+            pdf.set_xy(15 + w_desc + w_cant, y_inicio + 2.0)
+            pdf.multi_cell(w_prec - 1.5, 4.0, prec_texto, border=0, align="R")
 
-            pdf.set_xy(15 + w_desc + w_cant + w_prec + 1, y_inicio + 1.2)
-            pdf.multi_cell(w_sub - 2, 4.2, sub_texto, border=0, align="R")
+            pdf.set_xy(15 + w_desc + w_cant + w_prec, y_inicio + 2.0)
+            pdf.multi_cell(w_sub - 1.5, 4.0, sub_texto, border=0, align="R")
 
         pdf.set_y(y_inicio + h_fila)
         fill = not fill
@@ -873,7 +885,7 @@ def crear_pdf_cotizacion(
         if not es_vacio_o_none(validez): texto_cond_total += f"{lbl_validez} {validez}\n"
 
         total_lineas_cond = calcular_lineas_totales_texto(pdf, texto_cond_total, max_w=174, font_size=8.5)
-        box_h_cond = max(16, (total_lineas_cond * 4.8) + 8)
+        box_h_cond = max(18, (total_lineas_cond * 4.8) + 10)
         
         pdf.set_fill_color(248, 250, 252)
         pdf.set_draw_color(226, 232, 240)
@@ -898,7 +910,7 @@ def crear_pdf_cotizacion(
     if not es_vacio_o_none(notas):
         y_notas = pdf.get_y()
         total_lineas_notas = calcular_lineas_totales_texto(pdf, notas, max_w=174, font_size=8.5)
-        box_h_notas = max(16, (total_lineas_notas * 4.8) + 8)
+        box_h_notas = max(18, (total_lineas_notas * 4.8) + 10)
         
         pdf.set_fill_color(255, 255, 255)
         pdf.set_draw_color(226, 232, 240)
@@ -1611,7 +1623,7 @@ elif opcion == "5. Control de Transferencias":
     entidades_base = list(dict.fromkeys(ENTIDADES_PREDEFINIDAS + lista_empresas_db + lista_clientes_db))
     opciones_select = ["➕ Escribir Manualmente / Otro"] + entidades_base
 
-    # Menú de pestañas gestionado dinámicamente
+    # Menú de navegación dinámico
     opciones_seccion_transf = ["➕ Registrar / Editar Transferencia", "📊 Historial, Reportes y Descarga"]
     
     pestana_activa = st.radio(
@@ -1663,7 +1675,7 @@ elif opcion == "5. Control de Transferencias":
 
             st.divider()
 
-            # DETALLES FINANCIEROS (Lectura segura de fecha)
+            # DETALLES FINANCIEROS
             col_m1, col_m2, col_m3, col_m4 = st.columns(4)
             with col_m1:
                 fecha_val = date.today()
