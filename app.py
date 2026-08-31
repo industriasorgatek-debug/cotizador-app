@@ -61,6 +61,23 @@ def obtener_cuentas_bancarias(empresa_obj):
     return []
 
 
+# Función para extraer URLs de comprobantes (soporta texto simple o listas JSON)
+def obtener_urls_comprobantes(raw):
+    if es_vacio_o_none(raw):
+        return []
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                return parsed
+        except Exception:
+            pass
+        return [raw]
+    return []
+
+
 # Función para limpiar caracteres especiales incompatibles con PDF
 def limpiar_texto(texto):
     if es_vacio_o_none(texto):
@@ -1573,13 +1590,13 @@ elif opcion == "4. Historial de Documentos":
                             st.error(f"Error al eliminar: {e_del}")
 
 # -------------------------------------------------------------------------
-# MÓDULO 5: CONTROL Y REGISTRO DE TRANSFERENCIAS (NUEVO)
+# MÓDULO 5: CONTROL Y REGISTRO DE TRANSFERENCIAS (MEJORADO)
 # -------------------------------------------------------------------------
 elif opcion == "5. Control de Transferencias":
     st.title("💸 Control de Transferencias y Órdenes de Pago")
-    st.write("Registra, busca y organiza las transferencias realizadas o solicitadas por tu jefatura.")
+    st.write("Registra pagos multimoneda, adjunta múltiples comprobantes y exporta tu historial a Excel o CSV.")
 
-    # Obtener listas maestras para los selectores
+    # Obtener listas de nombres para sugerir en los selectores
     try:
         res_emp = supabase.table("empresas").select("nombre").execute()
         lista_empresas_db = [e["nombre"] for e in res_emp.data]
@@ -1589,23 +1606,21 @@ elif opcion == "5. Control de Transferencias":
         lista_empresas_db = []
         lista_clientes_db = []
 
-    # Lista unificada de orígenes y destinos sugeridos
     entidades_base = list(dict.fromkeys(ENTIDADES_PREDEFINIDAS + lista_empresas_db + lista_clientes_db))
     opciones_select = ["➕ Escribir Manualmente / Otro"] + entidades_base
 
-    # Pestañas: Registrar Nueva vs Historial/Reportes
-    tab_nueva, tab_historial = st.tabs(["➕ Registrar / Ordenar Transferencia", "📊 Historial y Comprobantes"])
+    tab_nueva, tab_historial = st.tabs(["➕ Registrar / Editar Transferencia", "📊 Historial, Reportes y Descarga"])
 
-    # ------------------ PESTAÑA 1: FORMULARIO DE TRANSFERENCIA ------------------
+    # ------------------ PESTAÑA 1: FORMULARIO ------------------
     with tab_nueva:
         transf_edit = st.session_state.get("transf_edit_data")
         if transf_edit:
-            st.info(f"✏️ Editando registro de transferencia ID: `{transf_edit['id'][:8]}`")
+            st.info(f"✏️ **Modo Edición Activo**: Modificando registro con ID `{transf_edit['id'][:8]}`")
 
         with st.form("form_transferencia", clear_on_submit=False):
             col_t1, col_t2 = st.columns(2)
 
-            # ORIGEN (DESDE DÓNDE)
+            # ORIGEN
             with col_t1:
                 st.markdown("### 📤 Emisor / Origen (¿Desde dónde?)")
                 origen_def = transf_edit.get("origen", "") if transf_edit else ""
@@ -1619,7 +1634,7 @@ elif opcion == "5. Control de Transferencias":
                 else:
                     origen_final = sel_origen
 
-            # DESTINO (A QUIÉN)
+            # DESTINO
             with col_t2:
                 st.markdown("### 📥 Beneficiario / Destino (¿A quién?)")
                 destino_def = transf_edit.get("destino", "") if transf_edit else ""
@@ -1661,15 +1676,29 @@ elif opcion == "5. Control de Transferencias":
                 ref_val = transf_edit.get("referencia", "") if transf_edit else ""
                 referencia_transf = st.text_input("N° de Referencia / ID de Transacción:", value=ref_val, placeholder="Ej: 9837482910 o Ref Zelle")
                 obs_val = transf_edit.get("observaciones", "") if transf_edit else ""
-                obs_transf = st.text_area("Concepto / Observaciones / Instrucciones de tu jefe:", value=obs_val, placeholder="Ej: Pago anticipo orden #402 / Cuenta Banesco Panamá")
+                obs_transf = st.text_area("Concepto / Observaciones / Instrucciones:", value=obs_val, placeholder="Ej: Pago anticipo orden #402 / Factura comercial adjunta")
 
             with col_n2:
-                st.markdown("📎 **Comprobante de Transferencia (Capture / Recibo)**")
-                if transf_edit and transf_edit.get("comprobante_url"):
-                    st.success("✅ Este registro ya tiene un comprobante cargado.")
-                    st.link_button("👁️ Ver Comprobante Actual", transf_edit["comprobante_url"])
+                st.markdown("📎 **Comprobantes y Facturas (Múltiples Archivos)**")
                 
-                archivo_comprobante = st.file_uploader("Subir nuevo comprobante (PNG, JPG, PDF)", type=["png", "jpg", "jpeg", "pdf"], key="file_comp")
+                # Lista de comprobantes previos si estamos en edición
+                comprobantes_existentes = obtener_urls_comprobantes(transf_edit.get("comprobante_url")) if transf_edit else []
+                comprobantes_conservar = []
+
+                if comprobantes_existentes:
+                    st.write("Archivos adjuntos actuales:")
+                    for idx_c, url_c in enumerate(comprobantes_existentes, start=1):
+                        chk = st.checkbox(f"Mantener Archivo #{idx_c}", value=True, key=f"chk_prev_{idx_c}")
+                        if chk:
+                            comprobantes_conservar.append(url_c)
+                        st.caption(f"[🔗 Ver Archivo #{idx_c}]({url_c})")
+                
+                archivos_comprobantes = st.file_uploader(
+                    "Subir archivos (puedes seleccionar varios: PNG, JPG, PDF)", 
+                    type=["png", "jpg", "jpeg", "pdf", "webp"], 
+                    accept_multiple_files=True, 
+                    key="files_comp_multi"
+                )
 
             guardar_t = st.form_submit_button("💾 Guardar Registro de Transferencia", use_container_width=True, type="primary")
 
@@ -1677,17 +1706,22 @@ elif opcion == "5. Control de Transferencias":
             if not origen_final or not destino_final or monto_transf <= 0:
                 st.error("⚠️ Por favor completa el Origen, Destino y un Monto mayor a 0.")
             else:
-                comprobante_url = transf_edit.get("comprobante_url") if transf_edit else None
+                lista_urls_final = list(comprobantes_conservar)
 
-                # Subida de archivo al storage si se cargó uno nuevo
-                if archivo_comprobante:
-                    ext = archivo_comprobante.name.split(".")[-1]
-                    path_comp = f"comprobantes/{fecha_transf}_{uuid.uuid4()}.{ext}"
-                    supabase.storage.from_("archivos-cotizador").upload(
-                        path=path_comp, file=archivo_comprobante.getvalue(),
-                        file_options={"content-type": archivo_comprobante.type, "upsert": "true"}
-                    )
-                    comprobante_url = supabase.storage.from_("archivos-cotizador").get_public_url(path_comp)
+                # Subida de cada nuevo archivo
+                if archivos_comprobantes:
+                    for arch in archivos_comprobantes:
+                        ext = arch.name.split(".")[-1]
+                        path_comp = f"comprobantes/{fecha_transf}_{uuid.uuid4()}.{ext}"
+                        supabase.storage.from_("archivos-cotizador").upload(
+                            path=path_comp, file=arch.getvalue(),
+                            file_options={"content-type": arch.type, "upsert": "true"}
+                        )
+                        url_subida = supabase.storage.from_("archivos-cotizador").get_public_url(path_comp)
+                        lista_urls_final.append(url_subida)
+
+                # Guardamos como JSON string en el campo comprobante_url
+                comprobante_url_db = json.dumps(lista_urls_final, ensure_ascii=False) if lista_urls_final else None
 
                 datos_t = {
                     "fecha": str(fecha_transf),
@@ -1697,7 +1731,7 @@ elif opcion == "5. Control de Transferencias":
                     "moneda": moneda_transf,
                     "referencia": referencia_transf.strip(),
                     "estado": estado_transf,
-                    "comprobante_url": comprobante_url,
+                    "comprobante_url": comprobante_url_db,
                     "observaciones": obs_transf.strip()
                 }
 
@@ -1714,24 +1748,23 @@ elif opcion == "5. Control de Transferencias":
                     st.error(f"🚨 Error al guardar en base de datos: {e_t}")
 
         if transf_edit:
-            if st.button("❌ Cancelar Edición de Transferencia"):
+            if st.button("❌ Cancelar Modo Edición"):
                 st.session_state["transf_edit_data"] = None
                 st.rerun()
 
-    # ------------------ PESTAÑA 2: HISTORIAL Y REPORTES ------------------
+    # ------------------ PESTAÑA 2: HISTORIAL, REPORTES Y EXPORTACIÓN ------------------
     with tab_historial:
         try:
             res_tr = supabase.table("transferencias").select("*").order("fecha", desc=True).execute()
             transferencias = res_tr.data
         except Exception as e:
-            st.error("🚨 Error al consultar la tabla 'transferencias'. ¿Ejecutaste el SQL en Supabase?")
+            st.error("🚨 Error al consultar la tabla 'transferencias':")
             st.write(e)
             transferencias = []
 
         if not transferencias:
             st.info("ℹ️ Aún no hay transferencias registradas.")
         else:
-            # FILTROS
             st.subheader("🔍 Filtros de Búsqueda")
             col_f1, col_f2, col_f3 = st.columns(3)
 
@@ -1739,9 +1772,8 @@ elif opcion == "5. Control de Transferencias":
                 busq_t = st.text_input("Buscar por palabra clave:", placeholder="Ej: United, Alina, Simkin, Suelen, N° Ref...")
             
             with col_f2:
-                # Todas las entidades únicas existentes en la BD
                 todas_entidades = sorted(list(set([t["origen"] for t in transferencias] + [t["destino"] for t in transferencias])))
-                filtro_entidad = st.selectbox("Filtrar por Proveedor / Cliente:", ["Todas"] + todas_entidades)
+                filtro_entidad = st.selectbox("Filtrar por Proveedor / Cliente / Cuenta:", ["Todas"] + todas_entidades)
 
             with col_f3:
                 filtro_estado = st.selectbox("Filtrar por Estado:", ["Todos", "Completada", "Pendiente / Por Pagar", "En Proceso", "Cancelada"])
@@ -1779,16 +1811,66 @@ elif opcion == "5. Control de Transferencias":
                         st.metric(label=f"Total {m_nom}", value=f"{suma_m:,.2f}")
 
             st.divider()
-            st.caption(f"Mostrando **{len(tf_filtradas)}** transferencias.")
 
-            # LISTA DE REGISTROS
+            # SECCIÓN DE DESCARGA (EXCEL Y CSV)
+            st.subheader("📥 Exportar Historial")
+            
+            # Preparación de datos para la exportación limpia
+            df_export = df_tf.copy()
+            if not df_export.empty:
+                cols_para_exportar = ["fecha", "origen", "destino", "monto", "moneda", "estado", "referencia", "observaciones"]
+                columnas_existentes = [c for c in cols_para_exportar if c in df_export.columns]
+                df_export_limpio = df_export[columnas_existentes].rename(columns={
+                    "fecha": "Fecha",
+                    "origen": "Origen / Emisor",
+                    "destino": "Destino / Beneficiario",
+                    "monto": "Monto",
+                    "moneda": "Moneda",
+                    "estado": "Estado",
+                    "referencia": "N° Referencia",
+                    "observaciones": "Observaciones / Concepto"
+                })
+
+                col_exp1, col_exp2, col_vacio = st.columns([1.5, 1.5, 3])
+                
+                # 1. Botón CSV
+                csv_bytes = df_export_limpio.to_csv(index=False).encode('utf-8-sig')
+                with col_exp1:
+                    st.download_button(
+                        label="📄 Descargar en CSV",
+                        data=csv_bytes,
+                        file_name=f"transferencias_{date.today()}.csv",
+                        mime="text/csv",
+                        use_container_width=True
+                    )
+
+                # 2. Botón Excel (.xlsx)
+                try:
+                    excel_buffer = io.BytesIO()
+                    with pd.ExcelWriter(excel_buffer, engine='openpyxl') as writer:
+                        df_export_limpio.to_excel(writer, index=False, sheet_name="Transferencias")
+                    excel_bytes = excel_buffer.getvalue()
+                    with col_exp2:
+                        st.download_button(
+                            label="📊 Descargar en Excel (.xlsx)",
+                            data=excel_bytes,
+                            file_name=f"transferencias_{date.today()}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            use_container_width=True
+                        )
+                except Exception:
+                    pass
+
+            st.divider()
+            st.caption(f"Mostrando **{len(tf_filtradas)}** de **{len(transferencias)}** transferencias.")
+
+            # LISTA DE REGISTROS CON ACCIÓN DE EDITAR, BORRAR Y VER MÚLTIPLES ARCHIVOS
             for tr in tf_filtradas:
-                # Color del estado
                 badge_color = "🟢" if tr.get("estado") == "Completada" else ("🟡" if "Pendiente" in tr.get("estado", "") else "🔵")
                 titulo_tr = f"{badge_color} {tr.get('fecha')} | {tr.get('origen')} ➡️ {tr.get('destino')} | {tr.get('moneda')} {tr.get('monto', 0):,.2f}"
 
                 with st.expander(titulo_tr):
-                    col_r1, col_r2, col_r3 = st.columns([2, 2, 1])
+                    col_r1, col_r2, col_r3 = st.columns([2, 2, 1.5])
 
                     with col_r1:
                         st.write(f"**📤 Origen:** {tr.get('origen')}")
@@ -1803,21 +1885,25 @@ elif opcion == "5. Control de Transferencias":
 
                     with col_r3:
                         st.markdown(f"### `{tr.get('moneda')} {tr.get('monto', 0):,.2f}`")
-                        if tr.get("comprobante_url"):
-                            st.link_button("📎 Ver Comprobante", tr["comprobante_url"], use_container_width=True)
+                        
+                        urls_archivos = obtener_urls_comprobantes(tr.get("comprobante_url"))
+                        if urls_archivos:
+                            st.markdown("**📎 Comprobantes / Facturas:**")
+                            for num_f, f_url in enumerate(urls_archivos, start=1):
+                                st.link_button(f"👁️ Ver Archivo #{num_f}", f_url, use_container_width=True)
                         else:
-                            st.caption("Sin comprobante adjunto")
+                            st.caption("Sin comprobantes adjuntos")
 
                     st.divider()
                     col_act1, col_act2 = st.columns(2)
 
                     with col_act1:
-                        if st.button("✏️ Editar Registro", key=f"edit_tr_{tr['id']}", use_container_width=True):
+                        if st.button("✏️ Editar Transferencia", key=f"edit_tr_{tr['id']}", use_container_width=True):
                             st.session_state["transf_edit_data"] = tr
                             st.rerun()
 
                     with col_act2:
-                        if st.button("🗑️ Eliminar", key=f"del_tr_{tr['id']}", type="secondary", use_container_width=True):
+                        if st.button("🗑️ Eliminar Transferencia", key=f"del_tr_{tr['id']}", type="secondary", use_container_width=True):
                             try:
                                 supabase.table("transferencias").delete().eq("id", tr["id"]).execute()
                                 st.success("Registro de transferencia eliminado.")
