@@ -173,14 +173,14 @@ def obtener_bytes_imagen(url_img):
         return None
 
 
-# ==========================================
-# MOTOR DE PDF PROFESIONAL MULTI-ESTILO
-# ==========================================
-def crear_pdf_documento(
-    empresa, cliente_nombre, cliente_rif, cliente_dir, moneda, items, 
-    subtotal, monto_iva, alicuota_iva, total, num_cotizacion,
-    tipo_documento, idioma, validez, incoterm, condiciones_pago, notas, tipo_item,
-    bancos_texto_custom=None,
+# =========================================================================
+# MOTOR 1: DISEÑADOR EXCLUSIVO PARA ÓRDENES DE COMPRA (PURCHASE ORDERS)
+# Estilo Lineal, Ejecutivo, Minimalista y Sin Cajas Envolventes
+# =========================================================================
+def crear_pdf_orden_compra(
+    empresa, proveedor_nombre, proveedor_rif, proveedor_dir, moneda, items, 
+    subtotal, monto_iva, alicuota_iva, total, num_doc,
+    idioma, validez, incoterm, condiciones_pago, notas, tipo_item,
     datos_envio=None
 ):
     pdf = FPDF(orientation="P", unit="mm", format="A4")
@@ -190,55 +190,403 @@ def crear_pdf_documento(
     
     es_ingles = (idioma == "Inglés")
     es_producto = (tipo_item == "Producto")
-    es_oc = (tipo_documento == "Orden de Compra")
 
-    # PALETA DE COLORES SEGÚN TIPO DE DOCUMENTO
-    if es_oc:
-        # Tema Verde Esmeralda / Compras Internacionales
-        c_primary = (27, 67, 50)        # #1B4332 (Verde bosque oscuro)
-        c_bg_box = (242, 247, 244)       # Fondo suave verde menta
-        c_border_box = (200, 222, 210)   # Borde verde suave
+    # Paleta de Colores Exclusiva PO: Carbón Ejecutivo y Acento Esmeralda
+    c_dark = (15, 23, 42)       # Slate 900
+    c_emerald = (4, 120, 87)    # Emerald 700
+    c_line = (203, 213, 225)    # Slate 300
+    c_text_mut = (100, 116, 139)# Slate 500
+
+    logo_bytes = obtener_bytes_imagen(empresa.get("logo_url"))
+    sello_bytes = obtener_bytes_imagen(empresa.get("sello_firma_url"))
+
+    # 1. ENCABEZADO LINEAL PO
+    if logo_bytes:
+        try:
+            pdf.image(logo_bytes, x=15, y=14, w=45)
+        except Exception:
+            pdf.set_font("Helvetica", "B", 16)
+            pdf.set_text_color(*c_dark)
+            pdf.cell(85, 8, limpiar_texto(empresa['nombre']), ln=False)
     else:
-        # Tema Azul Marino / Cotizaciones y Facturas
-        c_primary = (26, 54, 93)        # #1A365D (Azul corporativo)
-        c_bg_box = (248, 250, 252)       # Fondo suave gris/azul
-        c_border_box = (226, 232, 240)   # Borde gris suave
+        pdf.set_font("Helvetica", "B", 16)
+        pdf.set_text_color(*c_dark)
+        pdf.cell(85, 8, limpiar_texto(empresa['nombre']), ln=False)
 
-    # TÍTULO DEL DOCUMENTO
-    if es_oc:
-        titulo_doc = "PURCHASE ORDER (PO)" if es_ingles else "ORDEN DE COMPRA"
-    elif tipo_documento == "Proforma Invoice":
+    # Bloque Título y Número P.O.
+    pdf.set_xy(105, 12)
+    pdf.set_font("Helvetica", "B", 18)
+    pdf.set_text_color(*c_emerald)
+    titulo_po = "PURCHASE ORDER" if es_ingles else "ORDEN DE COMPRA"
+    pdf.cell(90, 7, titulo_po, align="R", new_x="LMARGIN", new_y="NEXT")
+
+    pdf.set_x(105)
+    pdf.set_font("Helvetica", "B", 10.5)
+    pdf.set_text_color(*c_dark)
+    lbl_po_no = "PO NO.:" if es_ingles else "O.C. N°:"
+    pdf.cell(90, 5, f"{lbl_po_no} {limpiar_texto(num_doc)}", align="R", new_x="LMARGIN", new_y="NEXT")
+
+    pdf.set_x(105)
+    pdf.set_font("Helvetica", "", 8.5)
+    pdf.set_text_color(*c_text_mut)
+    lbl_fecha = "DATE:" if es_ingles else "FECHA:"
+    pdf.cell(90, 4, f"{lbl_fecha} {datetime.now().strftime('%d/%m/%Y')}", align="R", new_x="LMARGIN", new_y="NEXT")
+
+    # Separador sutil
+    pdf.set_y(38)
+    pdf.set_draw_color(*c_dark)
+    pdf.set_line_width(0.6)
+    pdf.line(15, 38, 195, 38)
+    pdf.ln(4)
+
+    # 2. INFORMACIÓN DE LAS PARTES (LINEAL - SIN CAJAS NI RECUADROS)
+    y_partes = pdf.get_y()
+
+    # Columna Izquierda: COMPRADOR (BUYER)
+    pdf.set_xy(15, y_partes)
+    pdf.set_font("Helvetica", "B", 8.5)
+    pdf.set_text_color(*c_emerald)
+    lbl_buyer = "1. BUYER / IMPORTER (COMPRADOR):" if es_ingles else "1. COMPRADOR / EMISOR:"
+    pdf.cell(85, 4.5, lbl_buyer, new_x="LMARGIN", new_y="NEXT")
+
+    pdf.set_x(15)
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.set_text_color(*c_dark)
+    pdf.multi_cell(85, 4.5, limpiar_texto(empresa['nombre']))
+
+    if not es_vacio_o_none(empresa.get('rif')):
+        pdf.set_x(15)
+        pdf.set_font("Helvetica", "", 8)
+        pdf.set_text_color(*c_text_mut)
+        pdf.cell(85, 4, f"Tax ID / RIF: {limpiar_texto(empresa['rif'])}", new_x="LMARGIN", new_y="NEXT")
+
+    if not es_vacio_o_none(empresa.get('direccion')):
+        pdf.set_x(15)
+        pdf.set_font("Helvetica", "", 8)
+        pdf.set_text_color(51, 65, 85)
+        pdf.multi_cell(85, 3.8, f"Address: {limpiar_texto(empresa['direccion'])}")
+
+    y_pos_izq = pdf.get_y()
+
+    # Columna Derecha: PROVEEDOR (VENDOR)
+    pdf.set_xy(108, y_partes)
+    pdf.set_font("Helvetica", "B", 8.5)
+    pdf.set_text_color(*c_emerald)
+    lbl_vendor = "2. VENDOR / SUPPLIER (PROVEEDOR):" if es_ingles else "2. PROVEEDOR / BENEFICIARIO:"
+    pdf.cell(87, 4.5, lbl_vendor, new_x="LMARGIN", new_y="NEXT")
+
+    pdf.set_x(108)
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.set_text_color(*c_dark)
+    pdf.multi_cell(87, 4.5, limpiar_texto(proveedor_nombre))
+
+    if not es_vacio_o_none(proveedor_rif):
+        pdf.set_x(108)
+        pdf.set_font("Helvetica", "", 8)
+        pdf.set_text_color(*c_text_mut)
+        pdf.cell(87, 4, f"Tax ID / EIN: {limpiar_texto(proveedor_rif)}", new_x="LMARGIN", new_y="NEXT")
+
+    if not es_vacio_o_none(proveedor_dir):
+        pdf.set_x(108)
+        pdf.set_font("Helvetica", "", 8)
+        pdf.set_text_color(51, 65, 85)
+        pdf.multi_cell(87, 3.8, f"Address: {limpiar_texto(proveedor_dir)}")
+
+    y_pos_der = pdf.get_y()
+    y_max_partes = max(y_pos_izq, y_pos_der, y_partes + 25) + 3
+
+    # 3. FRANJA LOGÍSTICA Y COMERCIAL (TABLA ESTRUCTURADA DE ENVÍO)
+    pdf.set_xy(15, y_max_partes)
+    pdf.set_draw_color(*c_line)
+    pdf.set_line_width(0.3)
+    pdf.line(15, y_max_partes, 195, y_max_partes)
+    pdf.ln(1.5)
+
+    # Render de campos logísticos en línea moderna
+    y_log = pdf.get_y()
+    
+    # Fila 1: Incoterm | Términos de Pago | Lead Time
+    pdf.set_font("Helvetica", "B", 7.5)
+    pdf.set_text_color(*c_text_mut)
+    pdf.cell(45, 3.5, "INCOTERM / TERMS:", border=0)
+    pdf.cell(65, 3.5, "PAYMENT TERMS:", border=0)
+    pdf.cell(70, 3.5, "LEAD TIME / ESTIMATED ETD:", border=0, new_x="LMARGIN", new_y="NEXT")
+
+    pdf.set_font("Helvetica", "B", 8.5)
+    pdf.set_text_color(*c_dark)
+    txt_inco = incoterm if (not es_vacio_o_none(incoterm) and incoterm != "N/A") else "Standard Terms"
+    txt_pago = condiciones_pago if not es_vacio_o_none(condiciones_pago) else "As Agreed"
+    txt_lead = validez if not es_vacio_o_none(validez) else "Immediate"
+
+    pdf.cell(45, 4.5, limpiar_texto(txt_inco), border=0)
+    pdf.cell(65, 4.5, limpiar_texto(txt_pago), border=0)
+    pdf.cell(70, 4.5, limpiar_texto(txt_lead), border=0, new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(1)
+
+    # Fila 2: Ship To y Puertos (si están presentes)
+    if datos_envio and (datos_envio.get("lugar_entrega") or datos_envio.get("puertos")):
+        pdf.set_font("Helvetica", "B", 7.5)
+        pdf.set_text_color(*c_text_mut)
+        pdf.cell(90, 3.5, "SHIP TO ADDRESS (LUGAR DE ENTREGA):", border=0)
+        pdf.cell(90, 3.5, "PORTS (POL / POD):", border=0, new_x="LMARGIN", new_y="NEXT")
+
+        pdf.set_font("Helvetica", "", 8)
+        pdf.set_text_color(51, 65, 85)
+        txt_shipto = datos_envio.get("lugar_entrega", "Standard Warehouse")
+        txt_ports = datos_envio.get("puertos", "N/A")
+        pdf.cell(90, 4, limpiar_texto(txt_shipto), border=0)
+        pdf.cell(90, 4, limpiar_texto(txt_ports), border=0, new_x="LMARGIN", new_y="NEXT")
+
+    pdf.ln(2)
+    pdf.line(15, pdf.get_y(), 195, pdf.get_y())
+    pdf.ln(3)
+
+    # 4. TABLA DE MERCANCÍA / PRODUCTOS (CON ESTILO TÉCNICO PO)
+    # Encabezados: # | ITEM DESCRIPTION & SPECS | UOM | QTY | UNIT RATE | AMOUNT
+    pdf.set_font("Helvetica", "B", 8)
+    pdf.set_fill_color(*c_dark)
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_draw_color(*c_dark)
+
+    w_num = 10
+    if es_producto:
+        w_desc, w_uom, w_cant, w_prec, w_sub = 75, 18, 18, 27, 32
+        pdf.cell(w_num, 7.5, "#", border=1, fill=True, align="C")
+        pdf.cell(w_desc, 7.5, " ITEM DESCRIPTION & SPECIFICATIONS" if es_ingles else " DESCRIPCION DEL ITEM Y ESPECIFICACIONES", border=1, fill=True)
+        pdf.cell(w_uom, 7.5, "UOM", border=1, fill=True, align="C")
+        pdf.cell(w_cant, 7.5, "QTY", border=1, fill=True, align="C")
+        pdf.cell(w_prec, 7.5, "UNIT RATE", border=1, fill=True, align="R")
+        pdf.cell(w_sub, 7.5, "TOTAL AMOUNT ", border=1, fill=True, align="R", new_x="LMARGIN", new_y="NEXT")
+    else:
+        w_desc, w_cant, w_prec, w_sub = 93, 22, 25, 30
+        pdf.cell(w_num, 7.5, "#", border=1, fill=True, align="C")
+        pdf.cell(w_desc, 7.5, " SERVICE DESCRIPTION / SCOPE", border=1, fill=True)
+        pdf.cell(w_cant, 7.5, "QTY / HRS", border=1, fill=True, align="C")
+        pdf.cell(w_prec, 7.5, "UNIT RATE", border=1, fill=True, align="R")
+        pdf.cell(w_sub, 7.5, "TOTAL AMOUNT ", border=1, fill=True, align="R", new_x="LMARGIN", new_y="NEXT")
+
+    pdf.set_font("Helvetica", "", 8.5)
+    pdf.set_text_color(30, 41, 59)
+    pdf.set_draw_color(*c_line)
+
+    fill = False
+    for idx_item, item in enumerate(items, start=1):
+        desc_texto = limpiar_texto(item['descripcion'])
+        if es_producto and not es_vacio_o_none(item.get("presentacion")):
+            desc_texto += f"\n[Specs/SKU: {limpiar_texto(item['presentacion'])}]"
+            
+        uom_texto = limpiar_texto(item.get("uom", "PCS")) if es_producto else ""
+        cant_texto = str(item['cantidad'])
+        prec_texto = f"{item['precio']:,.2f}"
+        sub_texto = f"{item['subtotal']:,.2f} "
+
+        l_desc = calcular_lineas_multiline(pdf, desc_texto, w_desc, font_size=8.5)
+        l_cant = calcular_lineas_multiline(pdf, cant_texto, w_cant, font_size=8.5)
+        l_prec = calcular_lineas_multiline(pdf, prec_texto, w_prec, font_size=8.5)
+        l_sub = calcular_lineas_multiline(pdf, sub_texto, w_sub, font_size=8.5)
+        
+        n_lineas_max = max(l_desc, l_cant, l_prec, l_sub, 1)
+        h_fila = max(7.5, (n_lineas_max * 4.2) + 2.5)
+
+        if pdf.get_y() + h_fila > 275:
+            pdf.add_page()
+            # Reimprimir encabezado de tabla
+            pdf.set_font("Helvetica", "B", 8)
+            pdf.set_fill_color(*c_dark)
+            pdf.set_text_color(255, 255, 255)
+            pdf.set_draw_color(*c_dark)
+            if es_producto:
+                pdf.cell(w_num, 7.5, "#", border=1, fill=True, align="C")
+                pdf.cell(w_desc, 7.5, " ITEM DESCRIPTION & SPECIFICATIONS", border=1, fill=True)
+                pdf.cell(w_uom, 7.5, "UOM", border=1, fill=True, align="C")
+                pdf.cell(w_cant, 7.5, "QTY", border=1, fill=True, align="C")
+                pdf.cell(w_prec, 7.5, "UNIT RATE", border=1, fill=True, align="R")
+                pdf.cell(w_sub, 7.5, "TOTAL AMOUNT ", border=1, fill=True, align="R", new_x="LMARGIN", new_y="NEXT")
+            else:
+                pdf.cell(w_num, 7.5, "#", border=1, fill=True, align="C")
+                pdf.cell(w_desc, 7.5, " SERVICE DESCRIPTION / SCOPE", border=1, fill=True)
+                pdf.cell(w_cant, 7.5, "QTY / HRS", border=1, fill=True, align="C")
+                pdf.cell(w_prec, 7.5, "UNIT RATE", border=1, fill=True, align="R")
+                pdf.cell(w_sub, 7.5, "TOTAL AMOUNT ", border=1, fill=True, align="R", new_x="LMARGIN", new_y="NEXT")
+            pdf.set_font("Helvetica", "", 8.5)
+            pdf.set_text_color(30, 41, 59)
+            pdf.set_draw_color(*c_line)
+
+        y_inicio = pdf.get_y()
+        fill_color = (248, 250, 252) if fill else (255, 255, 255)
+        pdf.set_fill_color(*fill_color)
+
+        if es_producto:
+            pdf.rect(15, y_inicio, w_num, h_fila, style="FD")
+            pdf.rect(15 + w_num, y_inicio, w_desc, h_fila, style="FD")
+            pdf.rect(15 + w_num + w_desc, y_inicio, w_uom, h_fila, style="FD")
+            pdf.rect(15 + w_num + w_desc + w_uom, y_inicio, w_cant, h_fila, style="FD")
+            pdf.rect(15 + w_num + w_desc + w_uom + w_cant, y_inicio, w_prec, h_fila, style="FD")
+            pdf.rect(15 + w_num + w_desc + w_uom + w_cant + w_prec, y_inicio, w_sub, h_fila, style="FD")
+        else:
+            pdf.rect(15, y_inicio, w_num, h_fila, style="FD")
+            pdf.rect(15 + w_num, y_inicio, w_desc, h_fila, style="FD")
+            pdf.rect(15 + w_num + w_desc, y_inicio, w_cant, h_fila, style="FD")
+            pdf.rect(15 + w_num + w_desc + w_cant, y_inicio, w_prec, h_fila, style="FD")
+            pdf.rect(15 + w_num + w_desc + w_cant + w_prec, y_inicio, w_sub, h_fila, style="FD")
+
+        # Texto
+        pdf.set_xy(15, y_inicio + 1.2)
+        pdf.cell(w_num, 4.2, str(idx_item), border=0, align="C")
+
+        pdf.set_xy(15 + w_num + 1, y_inicio + 1.2)
+        pdf.multi_cell(w_desc - 2, 4.2, desc_texto, border=0, align="L")
+
+        if es_producto:
+            pdf.set_xy(15 + w_num + w_desc, y_inicio + 1.2)
+            pdf.cell(w_uom, 4.2, uom_texto, border=0, align="C")
+
+            pdf.set_xy(15 + w_num + w_desc + w_uom, y_inicio + 1.2)
+            pdf.cell(w_cant, 4.2, cant_texto, border=0, align="C")
+
+            pdf.set_xy(15 + w_num + w_desc + w_uom + w_cant, y_inicio + 1.2)
+            pdf.cell(w_prec - 1, 4.2, prec_texto, border=0, align="R")
+
+            pdf.set_xy(15 + w_num + w_desc + w_uom + w_cant + w_prec, y_inicio + 1.2)
+            pdf.cell(w_sub - 1, 4.2, sub_texto, border=0, align="R")
+        else:
+            pdf.set_xy(15 + w_num + w_desc, y_inicio + 1.2)
+            pdf.cell(w_cant, 4.2, cant_texto, border=0, align="C")
+
+            pdf.set_xy(15 + w_num + w_desc + w_cant, y_inicio + 1.2)
+            pdf.cell(w_prec - 1, 4.2, prec_texto, border=0, align="R")
+
+            pdf.set_xy(15 + w_num + w_desc + w_cant + w_prec, y_inicio + 1.2)
+            pdf.cell(w_sub - 1, 4.2, sub_texto, border=0, align="R")
+
+        pdf.set_y(y_inicio + h_fila)
+        fill = not fill
+
+    pdf.ln(4)
+
+    # 5. BLOQUE FINANCIERO E INSTRUCCIONES ESPECIALES (REDDISEÑADO)
+    y_fin = pdf.get_y()
+
+    # Lado Izquierdo: Notas e Instrucciones Especiales
+    pdf.set_xy(15, y_fin)
+    pdf.set_font("Helvetica", "B", 8)
+    pdf.set_text_color(*c_emerald)
+    pdf.cell(100, 4, "PURCHASE INSTRUCTIONS / SPECIAL REMARKS:" if es_ingles else "INSTRUCCIONES Y OBSERVACIONES DE COMPRA:", new_x="LMARGIN", new_y="NEXT")
+    
+    txt_instrucciones = notas if not es_vacio_o_none(notas) else "Please confirm receipt and acceptance of this Purchase Order."
+    pdf.set_x(15)
+    pdf.set_font("Helvetica", "", 8)
+    pdf.set_text_color(51, 65, 85)
+    pdf.multi_cell(100, 3.8, limpiar_texto(txt_instrucciones))
+    y_fin_izq = pdf.get_y()
+
+    # Lado Derecho: Desglose y Gran Total en Barra Ejecutiva
+    pdf.set_xy(122, y_fin)
+    pdf.set_font("Helvetica", "", 8.5)
+    pdf.set_text_color(*c_text_mut)
+    pdf.cell(33, 5, "Currency / Moneda:", align="L")
+    pdf.set_font("Helvetica", "B", 8.5)
+    pdf.set_text_color(*c_dark)
+    pdf.cell(40, 5, limpiar_texto(moneda), align="R", new_x="LMARGIN", new_y="NEXT")
+
+    pdf.set_x(122)
+    pdf.set_font("Helvetica", "", 8.5)
+    pdf.set_text_color(*c_text_mut)
+    pdf.cell(33, 5, "Net Subtotal:", align="L")
+    pdf.set_font("Helvetica", "B", 8.5)
+    pdf.set_text_color(*c_dark)
+    pdf.cell(40, 5, f"{subtotal:,.2f}", align="R", new_x="LMARGIN", new_y="NEXT")
+
+    if monto_iva > 0:
+        pdf.set_x(122)
+        pdf.set_font("Helvetica", "", 8.5)
+        pdf.set_text_color(*c_text_mut)
+        pdf.cell(33, 5, f"Tax / VAT ({alicuota_iva:.0f}%):", align="L")
+        pdf.set_font("Helvetica", "B", 8.5)
+        pdf.set_text_color(*c_dark)
+        pdf.cell(40, 5, f"{monto_iva:,.2f}", align="R", new_x="LMARGIN", new_y="NEXT")
+
+    # TOTAL PO (Barra Ejecutiva Destacada)
+    pdf.set_x(122)
+    pdf.set_fill_color(*c_emerald)
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.cell(33, 8, " TOTAL PO:", fill=True)
+    pdf.cell(40, 8, f"{total:,.2f} ", fill=True, align="R", new_x="LMARGIN", new_y="NEXT")
+
+    y_sig = max(y_fin_izq, pdf.get_y()) + 10
+
+    # 6. DOBLE VALIDACIÓN AL PIE (ESTÁNDAR PO INTERNACIONAL)
+    if y_sig + 32 > 280:
+        pdf.add_page()
+        y_sig = 20
+
+    pdf.set_y(y_sig)
+    
+    # A la izquierda: Aceptación de Proveedor
+    pdf.set_draw_color(*c_line)
+    pdf.line(15, y_sig + 16, 85, y_sig + 16)
+    pdf.set_xy(15, y_sig + 17)
+    pdf.set_font("Helvetica", "I", 7.5)
+    pdf.set_text_color(*c_text_mut)
+    pdf.cell(70, 3.5, "Vendor Acceptance / Signature & Date", align="C")
+
+    # A la derecha: Sello / Firma del Comprador
+    if sello_bytes:
+        try:
+            pdf.image(sello_bytes, x=135, y=y_sig - 2, w=42)
+        except Exception:
+            pass
+    pdf.line(125, y_sig + 16, 195, y_sig + 16)
+    pdf.set_xy(125, y_sig + 17)
+    pdf.set_font("Helvetica", "I", 7.5)
+    pdf.set_text_color(*c_text_mut)
+    pdf.cell(70, 3.5, "Authorized Procurement Signature / Stamp", align="C")
+
+    return bytes(pdf.output())
+
+
+# =========================================================================
+# MOTOR 2: DISEÑADOR ESTÁNDAR PARA COTIZACIONES, PROFORMAS Y FACTURAS
+# =========================================================================
+def crear_pdf_cotizacion(
+    empresa, cliente_nombre, cliente_rif, cliente_dir, moneda, items, 
+    subtotal, monto_iva, alicuota_iva, total, num_cotizacion,
+    tipo_documento, idioma, validez, incoterm, condiciones_pago, notas, tipo_item,
+    bancos_texto_custom=None
+):
+    pdf = FPDF(orientation="P", unit="mm", format="A4")
+    pdf.set_margins(15, 15, 15)
+    pdf.add_page()
+    pdf.set_auto_page_break(auto=True, margin=20)
+    
+    es_ingles = (idioma == "Inglés")
+    es_producto = (tipo_item == "Producto")
+    
+    if tipo_documento == "Proforma Invoice":
         titulo_doc = "PROFORMA INVOICE"
     elif tipo_documento == "Factura Comercial":
         titulo_doc = "COMMERCIAL INVOICE" if es_ingles else "FACTURA COMERCIAL"
     else:
         titulo_doc = "QUOTATION" if es_ingles else "COTIZACION"
 
-    # ETIQUETAS DINÁMICAS (En OC los roles se invierten: Empresa = Comprador, Tercero = Proveedor)
-    lbl_num = "PO No.:" if (es_ingles and es_oc) else ("O.C. N°:" if es_oc else ("No.:" if es_ingles else "N°:"))
+    lbl_num = "No.:" if es_ingles else "N°:"
     lbl_fecha = "Date:" if es_ingles else "Fecha:"
-    lbl_validez = "Validity / Lead Time:" if es_ingles else "Validez / Tiempo Entrega:"
-    
-    if es_oc:
-        lbl_emisor = "BUYER / IMPORTER (COMPRADOR)" if es_ingles else "COMPRADOR / SOLICITANTE"
-        lbl_cliente = "SUPPLIER / VENDOR (PROVEEDOR)" if es_ingles else "PROVEEDOR / BENEFICIARIO"
-    else:
-        lbl_emisor = "ISSUER / SUPPLIER" if es_ingles else "EMISOR / PROVEEDOR"
-        lbl_cliente = "CLIENT / RECIPIENT" if es_ingles else "CLIENTE / DESTINATARIO"
-
-    lbl_desc = " Description of Goods / Specs" if (es_ingles and es_producto) else (" Description of Services" if es_ingles else (" Descripcion de Mercancia / Especificaciones" if es_producto else " Descripcion del Servicio"))
+    lbl_validez = "Validity:" if es_ingles else "Validez:"
+    lbl_emisor = "ISSUER / SUPPLIER" if es_ingles else "EMISOR / PROVEEDOR"
+    lbl_cliente = "CLIENT / RECIPIENT" if es_ingles else "CLIENTE / DESTINATARIO"
+    lbl_desc = " Description of Goods" if (es_ingles and es_producto) else (" Description of Services" if es_ingles else (" Descripcion del Producto" if es_producto else " Descripcion del Servicio"))
     lbl_um = "UOM" if es_ingles else "U.M."
     lbl_cant = "Qty" if es_ingles else "Cant."
     lbl_precio = "Unit Price" if es_ingles else "P. Unitario"
     lbl_sub = "Subtotal "
-    
-    lbl_bancos = "PAYMENT & BANKING DETAILS:" if es_ingles else "DATOS BANCARIOS E INSTRUCCIONES DE PAGO:"
+    lbl_bancos = "BANK DETAILS / PAYMENT INSTRUCTIONS:" if es_ingles else "DATOS BANCARIOS PARA TRANSFERENCIA:"
     lbl_cond_pago = "Payment Terms:" if es_ingles else "Condiciones de Pago:"
-    lbl_incoterm = "Incoterm & Port:" if es_ingles else "Incoterm y Puerto:"
-    lbl_notas = "SPECIAL INSTRUCTIONS / REMARKS:" if es_ingles else "INSTRUCCIONES Y OBSERVACIONES:"
-    lbl_firma = "Authorized Signature / Procurement Stamp" if es_ingles else "Firma / Sello de Aprobacion"
+    lbl_incoterm = "Incoterm:" if es_ingles else "Incoterm:"
+    lbl_notas = "REMARKS / COMPLEMENTARY NOTES:" if es_ingles else "NOTAS COMPLEMENTARIAS / OBSERVACIONES:"
+    lbl_firma = "Authorized Signature / Stamp" if es_ingles else "Firma / Sello Autorizado"
 
-    # 1. ENCABEZADO Y LOGO
+    # 1. Encabezado y Logo
     logo_bytes = obtener_bytes_imagen(empresa.get("logo_url"))
     sello_bytes = obtener_bytes_imagen(empresa.get("sello_firma_url"))
 
@@ -247,16 +595,15 @@ def crear_pdf_documento(
             pdf.image(logo_bytes, x=15, y=14, w=45)
         except Exception:
             pdf.set_font("Helvetica", "B", 16)
-            pdf.set_text_color(*c_primary)
             pdf.cell(90, 10, limpiar_texto(empresa['nombre']), ln=False)
     else:
         pdf.set_font("Helvetica", "B", 16)
-        pdf.set_text_color(*c_primary)
+        pdf.set_text_color(26, 54, 93)
         pdf.cell(90, 10, limpiar_texto(empresa['nombre']), ln=False)
 
     pdf.set_xy(105, 12)
-    pdf.set_font("Helvetica", "B", 15)
-    pdf.set_text_color(*c_primary)
+    pdf.set_font("Helvetica", "B", 16)
+    pdf.set_text_color(26, 54, 93)
     pdf.cell(90, 7, titulo_doc, align="R", new_x="LMARGIN", new_y="NEXT")
     
     pdf.set_x(105)
@@ -274,12 +621,12 @@ def crear_pdf_documento(
 
     pdf.ln(4)
     
-    pdf.set_draw_color(*c_primary)
+    pdf.set_draw_color(26, 54, 93)
     pdf.set_line_width(0.8)
     pdf.line(15, 42, 195, 42)
     pdf.ln(4)
 
-    # 2. BLOQUE EMISOR Y RECEPTOR (COMPRADOR / PROVEEDOR)
+    # 2. Bloque Emisor y Cliente
     y_bloque = pdf.get_y()
     
     l_emp_nom = calcular_lineas_multiline(pdf, empresa['nombre'], 81, font_name="Helvetica", font_style="B", font_size=9.5)
@@ -294,15 +641,14 @@ def crear_pdf_documento(
 
     box_h_cabecera = max(34, h_emisor, h_cliente)
 
-    pdf.set_fill_color(*c_bg_box)
-    pdf.set_draw_color(*c_border_box)
+    pdf.set_fill_color(248, 250, 252)
+    pdf.set_draw_color(226, 232, 240)
     pdf.rect(15, y_bloque, 87, box_h_cabecera, style="FD")
     pdf.rect(108, y_bloque, 87, box_h_cabecera, style="FD")
 
-    # Contenido Izquierdo (Emisor)
     pdf.set_xy(18, y_bloque + 3)
     pdf.set_font("Helvetica", "B", 8.5)
-    pdf.set_text_color(*c_primary)
+    pdf.set_text_color(26, 54, 93)
     pdf.cell(81, 4, lbl_emisor, new_x="LMARGIN", new_y="NEXT")
     
     pdf.set_x(18)
@@ -314,7 +660,7 @@ def crear_pdf_documento(
         pdf.set_x(18)
         pdf.set_font("Helvetica", "", 8)
         pdf.set_text_color(71, 85, 105)
-        pdf.cell(81, 4, limpiar_texto(f"Tax ID / RIF: {empresa['rif']}"), new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(81, 4, limpiar_texto(f"RIF/Tax ID: {empresa['rif']}"), new_x="LMARGIN", new_y="NEXT")
     
     if not es_vacio_o_none(empresa.get('direccion')):
         pdf.set_x(18)
@@ -322,10 +668,9 @@ def crear_pdf_documento(
         pdf.set_text_color(71, 85, 105)
         pdf.multi_cell(81, 3.8, limpiar_texto(f"Dir: {empresa['direccion']}"))
 
-    # Contenido Derecho (Proveedor / Cliente)
     pdf.set_xy(111, y_bloque + 3)
     pdf.set_font("Helvetica", "B", 8.5)
-    pdf.set_text_color(*c_primary)
+    pdf.set_text_color(26, 54, 93)
     pdf.cell(81, 4, lbl_cliente, new_x="LMARGIN", new_y="NEXT")
     
     pdf.set_x(111)
@@ -337,7 +682,7 @@ def crear_pdf_documento(
         pdf.set_x(111)
         pdf.set_font("Helvetica", "", 8)
         pdf.set_text_color(71, 85, 105)
-        pdf.cell(81, 4, limpiar_texto(f"Tax ID / RIF: {cliente_rif}"), new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(81, 4, limpiar_texto(f"RIF/Tax ID: {cliente_rif}"), new_x="LMARGIN", new_y="NEXT")
     
     if not es_vacio_o_none(cliente_dir):
         pdf.set_x(111)
@@ -347,39 +692,11 @@ def crear_pdf_documento(
 
     pdf.set_y(y_bloque + box_h_cabecera + 4)
 
-    # 2.1 BLOQUE LOGÍSTICO EXCLUSIVO PARA ÓRDENES DE COMPRA (SHIP TO / ENTREGA)
-    if es_oc and datos_envio and any(datos_envio.values()):
-        y_envio = pdf.get_y()
-        txt_logistica = ""
-        if datos_envio.get("lugar_entrega"):
-            txt_logistica += f"Lugar de Entrega / Ship To Address: {datos_envio['lugar_entrega']}\n"
-        if datos_envio.get("puertos"):
-            txt_logistica += f"Puerto de Carga / Destino (POL / POD): {datos_envio['puertos']}\n"
-        if datos_envio.get("fecha_despacho"):
-            txt_logistica += f"Fecha Estimada Despacho / ETD: {datos_envio['fecha_despacho']}\n"
-
-        if txt_logistica:
-            n_lin_envio = calcular_lineas_totales_texto(pdf, txt_logistica, max_w=174, font_size=8.5)
-            h_box_envio = max(16, (n_lin_envio * 4.5) + 8)
-
-            pdf.set_fill_color(*c_bg_box)
-            pdf.set_draw_color(*c_border_box)
-            pdf.rect(15, y_envio, 180, h_box_envio, style="FD")
-
-            pdf.set_xy(18, y_envio + 2.5)
-            pdf.set_font("Helvetica", "B", 8.5)
-            pdf.set_text_color(*c_primary)
-            pdf.cell(174, 4, "INSTRUCCIONES DE ENVIO Y LOGISTICA / SHIPPING INSTRUCTIONS:", new_x="LMARGIN", new_y="NEXT")
-            pdf.ln(0.5)
-
-            render_texto_con_dospuntos(pdf, txt_logistica, x_start=18, max_w=174, font_size=8.5, line_h=4.2)
-            pdf.set_y(y_envio + h_box_envio + 4)
-
-    # 3. TABLA DE PRODUCTOS / SERVICIOS
+    # 3. Tabla de Productos / Servicios
     pdf.set_font("Helvetica", "B", 9)
-    pdf.set_fill_color(*c_primary)
+    pdf.set_fill_color(26, 54, 93)
     pdf.set_text_color(255, 255, 255)
-    pdf.set_draw_color(*c_primary)
+    pdf.set_draw_color(26, 54, 93)
 
     if es_producto:
         w_desc, w_um, w_cant, w_prec, w_sub = 75, 20, 15, 32, 38
@@ -397,7 +714,7 @@ def crear_pdf_documento(
 
     pdf.set_font("Helvetica", "", 8.5)
     pdf.set_text_color(51, 65, 85)
-    pdf.set_draw_color(*c_border_box)
+    pdf.set_draw_color(226, 232, 240)
     
     fill = False
     for item in items:
@@ -405,7 +722,7 @@ def crear_pdf_documento(
         if es_producto and not es_vacio_o_none(item.get("presentacion")):
             desc_texto += f" [{limpiar_texto(item['presentacion'])}]"
             
-        um_texto = limpiar_texto(item.get("uom", "Uds")) if es_producto else ""
+        um_texto = limpiar_texto(item.get("uom", "PCS")) if es_producto else ""
         cant_texto = str(item['cantidad'])
         prec_texto = f"{item['precio']:,.2f}"
         sub_texto = f"{item['subtotal']:,.2f} "
@@ -422,9 +739,9 @@ def crear_pdf_documento(
         if pdf.get_y() + h_fila > 275:
             pdf.add_page()
             pdf.set_font("Helvetica", "B", 9)
-            pdf.set_fill_color(*c_primary)
+            pdf.set_fill_color(26, 54, 93)
             pdf.set_text_color(255, 255, 255)
-            pdf.set_draw_color(*c_primary)
+            pdf.set_draw_color(26, 54, 93)
             if es_producto:
                 pdf.cell(w_desc, 8, lbl_desc, border=1, fill=True)
                 pdf.cell(w_um, 8, lbl_um, border=1, fill=True, align="C")
@@ -438,7 +755,7 @@ def crear_pdf_documento(
                 pdf.cell(w_sub, 8, lbl_sub, border=1, fill=True, align="R", new_x="LMARGIN", new_y="NEXT")
             pdf.set_font("Helvetica", "", 8.5)
             pdf.set_text_color(51, 65, 85)
-            pdf.set_draw_color(*c_border_box)
+            pdf.set_draw_color(226, 232, 240)
 
         y_inicio = pdf.get_y()
         fill_color = (241, 245, 249) if fill else (255, 255, 255)
@@ -486,7 +803,7 @@ def crear_pdf_documento(
 
     pdf.ln(5)
 
-    # 4. MÓDULO BANCARIO / TOTALES
+    # 4. Módulo Bancario y Totales
     y_seccion4 = pdf.get_y()
     
     if bancos_texto_custom is not None:
@@ -501,13 +818,13 @@ def crear_pdf_documento(
         total_lineas_bancos = calcular_lineas_totales_texto(pdf, bancos_texto, max_w=96, font_size=8.5)
         box_h_bancos = max(32, (total_lineas_bancos * 4.8) + 10)
 
-        pdf.set_fill_color(*c_bg_box)
-        pdf.set_draw_color(*c_border_box)
+        pdf.set_fill_color(248, 250, 252)
+        pdf.set_draw_color(226, 232, 240)
         pdf.rect(15, y_seccion4, 102, box_h_bancos, style="FD")
         
         pdf.set_xy(18, y_seccion4 + 3)
         pdf.set_font("Helvetica", "B", 8.5)
-        pdf.set_text_color(*c_primary)
+        pdf.set_text_color(26, 54, 93)
         pdf.cell(96, 4, lbl_bancos, new_x="LMARGIN", new_y="NEXT")
         pdf.ln(1)
         
@@ -517,7 +834,7 @@ def crear_pdf_documento(
     pdf.set_font("Helvetica", "B", 9)
     pdf.set_text_color(71, 85, 105)
     
-    pdf.cell(32, 6, "Currency / Moneda:" if es_ingles else "Moneda:", align="L")
+    pdf.cell(32, 6, "Moneda / Currency:" if es_ingles else "Moneda:", align="L")
     pdf.cell(40, 6, limpiar_texto(moneda), align="R", new_x="LMARGIN", new_y="NEXT")
     
     pdf.set_x(123)
@@ -531,7 +848,7 @@ def crear_pdf_documento(
         pdf.cell(40, 6, f"{monto_iva:,.2f}", align="R", new_x="LMARGIN", new_y="NEXT")
 
     pdf.set_x(123)
-    pdf.set_fill_color(*c_primary)
+    pdf.set_fill_color(26, 54, 93)
     pdf.set_text_color(255, 255, 255)
     pdf.set_font("Helvetica", "B", 10.5)
     pdf.cell(32, 8.5, " TOTAL:", fill=True)
@@ -540,7 +857,7 @@ def crear_pdf_documento(
     y_pos_siguiente = max(y_seccion4 + box_h_bancos + 5, pdf.get_y() + 6)
     pdf.set_y(y_pos_siguiente)
 
-    # 5. CONDICIONES COMERCIALES / TÉRMINOS DE COMPRA
+    # 5. Módulo Condiciones Comerciales
     tiene_cond = not es_vacio_o_none(condiciones_pago) or (not es_vacio_o_none(incoterm) and incoterm != "N/A") or not es_vacio_o_none(validez)
     if tiene_cond:
         y_cond = pdf.get_y()
@@ -552,15 +869,14 @@ def crear_pdf_documento(
         total_lineas_cond = calcular_lineas_totales_texto(pdf, texto_cond_total, max_w=174, font_size=8.5)
         box_h_cond = max(16, (total_lineas_cond * 4.8) + 8)
         
-        pdf.set_fill_color(*c_bg_box)
-        pdf.set_draw_color(*c_border_box)
+        pdf.set_fill_color(248, 250, 252)
+        pdf.set_draw_color(226, 232, 240)
         pdf.rect(15, y_cond, 180, box_h_cond, style="FD")
         
         pdf.set_xy(18, y_cond + 3)
         pdf.set_font("Helvetica", "B", 8.5)
-        pdf.set_text_color(*c_primary)
-        lbl_cond_title = "TERMS OF PURCHASE / SALE:" if (es_ingles and es_oc) else ("CONDICIONES DE COMPRA Y PAGO:" if es_oc else ("CONDICIONES COMERCIALES / TERMS OF SALE:" if es_ingles else "CONDICIONES COMERCIALES Y DE PAGO:"))
-        pdf.cell(174, 4, lbl_cond_title, new_x="LMARGIN", new_y="NEXT")
+        pdf.set_text_color(26, 54, 93)
+        pdf.cell(174, 4, "CONDICIONES COMERCIALES / TERMS OF SALE:" if es_ingles else "CONDICIONES COMERCIALES Y DE PAGO:", new_x="LMARGIN", new_y="NEXT")
         pdf.ln(1)
         
         if not es_vacio_o_none(condiciones_pago):
@@ -572,26 +888,26 @@ def crear_pdf_documento(
             
         pdf.set_y(y_cond + box_h_cond + 5)
 
-    # 6. NOTAS Y OBSERVACIONES
+    # 6. Módulo Notas Complementarias
     if not es_vacio_o_none(notas):
         y_notas = pdf.get_y()
         total_lineas_notas = calcular_lineas_totales_texto(pdf, notas, max_w=174, font_size=8.5)
         box_h_notas = max(16, (total_lineas_notas * 4.8) + 8)
         
         pdf.set_fill_color(255, 255, 255)
-        pdf.set_draw_color(*c_border_box)
+        pdf.set_draw_color(226, 232, 240)
         pdf.rect(15, y_notas, 180, box_h_notas, style="FD")
         
         pdf.set_xy(18, y_notas + 3)
         pdf.set_font("Helvetica", "B", 8.5)
-        pdf.set_text_color(*c_primary)
+        pdf.set_text_color(26, 54, 93)
         pdf.cell(174, 4, lbl_notas, new_x="LMARGIN", new_y="NEXT")
         pdf.ln(1)
         
         render_texto_con_dospuntos(pdf, notas, x_start=18, max_w=174, font_size=8.5, line_h=4.5)
         pdf.set_y(y_notas + box_h_notas + 5)
 
-    # 7. SELLO Y FIRMA
+    # 7. Sello y Firma
     y_final = pdf.get_y() + 2
     if sello_bytes:
         try:
@@ -909,7 +1225,7 @@ elif opcion == "3. Emitir Documento (Cotizar / O.C.)":
 
     with col_c2:
         st.subheader("📋 Detalle del Documento")
-        prefijo_def = "OC-" if es_orden_compra else "COT-"
+        prefijo_def = "PO-" if es_orden_compra else "COT-"
         num_def = f"{prefijo_def}{datetime.now().strftime('%Y%m%d%H%M')}"
         if datos_cargados:
             if modo_form == "editar":
@@ -918,18 +1234,18 @@ elif opcion == "3. Emitir Documento (Cotizar / O.C.)":
                 num_def = f"{prefijo_def}{datetime.now().strftime('%Y%m%d%H%M')}"
 
         num_cotizacion = st.text_input("Número de Documento *", value=num_def)
-        lbl_validez_input = "Tiempo de Entrega / Validez" if es_orden_compra else "Tiempo de Validez"
-        val_default_text = "30 Días" if es_orden_compra else "15 Días"
+        lbl_validez_input = "Tiempo de Entrega / Lead Time" if es_orden_compra else "Tiempo de Validez"
+        val_default_text = "20-25 Días" if es_orden_compra else "15 Días"
         validez = st.text_input(lbl_validez_input, value=datos_cargados.get("validez", val_default_text) if datos_cargados else val_default_text)
         
         incoterm = st.selectbox(
             "Incoterm (Comercio Internacional)", 
-            ["N/A", "FOB - Free on Board", "EXW - Ex Works", "FCA - Free Carrier", "CIF - Cost, Insurance & Freight", "CFR - Cost and Freight", "DDP - Delivered Duty Paid", "DAP - Delivered at Place", "CIP - Carriage and Insurance Paid to", "CPT - Carriage Paid To", "DPU - Delivered at Place Unloaded", "FAS - Free Alongside Ship"]
+            ["FOB - Free on Board", "EXW - Ex Works", "CIF - Cost, Insurance & Freight", "CFR - Cost and Freight", "DDP - Delivered Duty Paid", "DAP - Delivered at Place", "FCA - Free Carrier", "CIP - Carriage & Insurance Paid", "CPT - Carriage Paid To", "N/A"]
         )
-        cond_default = "30% Anticipo, 70% contra BL" if es_orden_compra else "100% Anticipado"
+        cond_default = "30% Deposit, 70% against BL Copy" if es_orden_compra else "100% Anticipado"
         condiciones_pago = st.text_input("Condiciones de Pago", value=datos_cargados.get("condiciones_pago", cond_default) if datos_cargados else cond_default)
 
-    # 3.1 CAMPOS ESPECIALES PARA ORDEN DE COMPRA INTERNACIONAL
+    # CAMPOS ESPECIALES PARA ORDEN DE COMPRA INTERNACIONAL
     datos_envio_dict = {}
     if es_orden_compra:
         st.subheader("🚢 Datos de Envío y Logística Internacional (Ship To / Destination)")
@@ -938,19 +1254,19 @@ elif opcion == "3. Emitir Documento (Cotizar / O.C.)":
             with col_e1:
                 lugar_entrega = st.text_area(
                     "Dirección de Entrega / Ship To (Casillero / Forwarder / Almacén):",
-                    value="Ej: Almacén Freight Forwarder Miami / ShenZhen / Aduana Local",
+                    value="Warehouse & Logistics Forwarder Miami / ShenZhen / Local Customs",
                     height=70
                 )
             with col_e2:
-                puertos = st.text_input("Puerto de Embarque y Destino (POL / POD):", value="Ej: Ningbo Port / Miami / Puerto Cabello")
-                fecha_despacho = st.text_input("Fecha Estimada de Despacho (ETD / Lead Time):", value="Ej: 15-20 días tras confirmar anticipo")
+                puertos = st.text_input("Puerto de Embarque y Destino (POL / POD):", value="Ningbo Port (POL) -> Miami / La Guaira (POD)")
+                fecha_despacho = st.text_input("Fecha Estimada de Despacho (ETD):", value="15-20 days after advance confirmation")
             datos_envio_dict = {
                 "lugar_entrega": lugar_entrega if not es_vacio_o_none(lugar_entrega) else "",
                 "puertos": puertos if not es_vacio_o_none(puertos) else "",
                 "fecha_despacho": fecha_despacho if not es_vacio_o_none(fecha_despacho) else ""
             }
 
-    # Cuentas bancarias
+    # Cuentas bancarias (solo para cotizaciones y facturas)
     bancos_texto_para_pdf = ""
     if cuentas_disponibles and not es_orden_compra:
         st.subheader("🏦 Cuentas Bancarias a Mostrar en el PDF")
@@ -968,16 +1284,38 @@ elif opcion == "3. Emitir Documento (Cotizar / O.C.)":
         bancos_texto_para_pdf = "\n\n".join(bloques_bancarios)
 
     st.subheader("📦 Lista de Ítems / Precios")
-    lista_uoms = ["Unidades (Uds)", "Par", "m²", "m³ (CBM)", "Paquete (Pkt)", "Bulto", "Caja (CTN)", "Pieza (Pza)", "Set / Juego", "Metro (m)", "Kg", "Tonelada (TN)", "Litro (L)"]
+    
+    # LISTA INTERNACIONAL DE UNIDADES DE MEDIDA (UOM)
+    lista_uoms = [
+        "PCS",   # Pieces / Piezas
+        "UNT",   # Units / Unidades
+        "SET",   # Set / Juego
+        "CTN",   # Cartons / Cajas Master
+        "BOX",   # Boxes / Cajas
+        "PKT",   # Packets / Paquetes
+        "PR",    # Pairs / Pares
+        "KG",    # Kilograms / Kilos
+        "TON",   # Metric Tons / Toneladas
+        "M",     # Meters / Metros
+        "M²",    # Square Meters / Metros Cuadrados
+        "CBM",   # Cubic Meters / Metros Cúbicos
+        "LTR",   # Liters / Litros
+        "ROL",   # Rolls / Rollos
+        "BAG"    # Bags / Sacos / Bolsas
+    ]
 
     if datos_cargados and "items" in datos_cargados:
         items_cargados = []
         for it in datos_cargados["items"]:
+            uom_cargada = it.get("uom", "PCS")
+            if uom_cargada not in lista_uoms:
+                uom_cargada = "PCS"
+
             if tipo_item == "Producto":
                 items_cargados.append({
                     "Descripción": it.get("descripcion", ""),
                     "Presentación / Empaque / SKU": it.get("presentacion", ""),
-                    "Unidad de Medida": it.get("uom", "Unidades (Uds)"),
+                    "UOM": uom_cargada,
                     "Cantidad": it.get("cantidad", 1),
                     "Precio Unitario": it.get("precio", 0.0)
                 })
@@ -991,15 +1329,15 @@ elif opcion == "3. Emitir Documento (Cotizar / O.C.)":
     else:
         if tipo_item == "Producto":
             df_inicial = pd.DataFrame([{
-                "Descripción": "Ej: Repuesto / Materia Prima / Producto Modelo A",
-                "Presentación / Empaque / SKU": "Ej: Caja master x 50 pcs (HS: 8409.91)",
-                "Unidad de Medida": "Unidades (Uds)",
+                "Descripción": "Ej: Commercial Raw Material / Product Spec A",
+                "Presentación / Empaque / SKU": "CTN x 50 PCS (HS Code: 8409.91)",
+                "UOM": "PCS",
                 "Cantidad": 100,
                 "Precio Unitario": 12.50
             }])
         else:
             df_inicial = pd.DataFrame([{
-                "Descripción": "Ej: Servicio Técnico Especializado",
+                "Descripción": "Ej: Specialized Technical Consulting",
                 "Cantidad / Horas": 1,
                 "Precio Unitario": 200.0
             }])
@@ -1009,7 +1347,7 @@ elif opcion == "3. Emitir Documento (Cotizar / O.C.)":
             df_inicial,
             num_rows="dynamic",
             column_config={
-                "Unidad de Medida": st.column_config.SelectboxColumn("Unidad de Medida", options=lista_uoms, default="Unidades (Uds)"),
+                "UOM": st.column_config.SelectboxColumn("UOM", options=lista_uoms, default="PCS", width="small", help="Unidad de Medida"),
                 "Cantidad": st.column_config.NumberColumn("Cantidad", min_value=1, step=1, default=1),
                 "Precio Unitario": st.column_config.NumberColumn("Precio Unitario", min_value=0.0, format="%.2f", default=0.0),
             },
@@ -1047,7 +1385,8 @@ elif opcion == "3. Emitir Documento (Cotizar / O.C.)":
 
     with col_i2:
         notas_def = datos_cargados.get("notas", "") if datos_cargados else ""
-        notas = st.text_area("Notas / Especificaciones de Compra / Observaciones", value=notas_def, help="Escribe 'None' u 'Omitir' para no incluir este bloque")
+        lbl_notas_box = "Instrucciones de Compra / Observaciones" if es_orden_compra else "Notas Complementarias / Observaciones"
+        notas = st.text_area(lbl_notas_box, value=notas_def, help="Escribe 'None' u 'Omitir' para no incluir este bloque")
 
     st.divider()
 
@@ -1071,7 +1410,7 @@ elif opcion == "3. Emitir Documento (Cotizar / O.C.)":
                     items_list.append({
                         "descripcion": row["Descripción"],
                         "presentacion": row.get("Presentación / Empaque / SKU", ""),
-                        "uom": row.get("Unidad de Medida", "Uds"),
+                        "uom": row.get("UOM", "PCS"),
                         "cantidad": int(row["Cantidad"]),
                         "precio": float(row["Precio Unitario"]),
                         "subtotal": float(row["Subtotal"])
@@ -1084,14 +1423,23 @@ elif opcion == "3. Emitir Documento (Cotizar / O.C.)":
                         "subtotal": float(row["Subtotal"])
                     })
                 
-            pdf_bytes = crear_pdf_documento(
-                empresa, cliente_nombre, cliente_rif, cliente_dir, moneda,
-                items_list, subtotal_cotizacion, monto_iva, alicuota_iva, 
-                total_cotizacion, num_cotizacion, tipo_documento, idioma, 
-                validez, incoterm, condiciones_pago, notas, tipo_item,
-                bancos_texto_custom=bancos_texto_para_pdf,
-                datos_envio=datos_envio_dict
-            )
+            # SELECCIÓN DINÁMICA DEL MOTOR DE PDF
+            if es_orden_compra:
+                pdf_bytes = crear_pdf_orden_compra(
+                    empresa, cliente_nombre, cliente_rif, cliente_dir, moneda,
+                    items_list, subtotal_cotizacion, monto_iva, alicuota_iva, 
+                    total_cotizacion, num_cotizacion, idioma, 
+                    validez, incoterm, condiciones_pago, notas, tipo_item,
+                    datos_envio=datos_envio_dict
+                )
+            else:
+                pdf_bytes = crear_pdf_cotizacion(
+                    empresa, cliente_nombre, cliente_rif, cliente_dir, moneda,
+                    items_list, subtotal_cotizacion, monto_iva, alicuota_iva, 
+                    total_cotizacion, num_cotizacion, tipo_documento, idioma, 
+                    validez, incoterm, condiciones_pago, notas, tipo_item,
+                    bancos_texto_custom=bancos_texto_para_pdf
+                )
             
             path_pdf = f"cotizaciones/{num_cotizacion}_{uuid.uuid4()}.pdf"
             supabase.storage.from_("archivos-cotizador").upload(
@@ -1184,7 +1532,7 @@ elif opcion == "4. Historial de Documentos":
     else:
         col_f1, col_f2 = st.columns([2, 1])
         with col_f1:
-            busqueda = st.text_input("🔍 Buscar por nombre o número:", placeholder="Ej: Proveedor Asia, OC-2026, COT...")
+            busqueda = st.text_input("🔍 Buscar por nombre o número:", placeholder="Ej: Proveedor Asia, PO-2026, COT...")
         with col_f2:
             tipo_filtro = st.selectbox("Filtrar por Tipo:", ["Todos", "Cotización", "Proforma Invoice", "Factura Comercial", "Orden de Compra"])
 
