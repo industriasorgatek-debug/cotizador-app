@@ -98,7 +98,7 @@ def limpiar_texto(texto):
     return texto.encode("latin-1", "replace").decode("latin-1")
 
 
-# Helper perfeccionado para calcular con total precisión cuántas líneas ocupará un texto envuelto
+# Helper para calcular líneas de un texto envuelto en PDF
 def calcular_lineas_multiline(pdf, texto, ancho, font_name="Helvetica", font_style="", font_size=8.5):
     if es_vacio_o_none(texto):
         return 1
@@ -138,7 +138,7 @@ def calcular_lineas_multiline(pdf, texto, ancho, font_name="Helvetica", font_sty
     return max(1, lineas_totales)
 
 
-# Helper para calcular el número exacto de renglones impresos por render_texto_con_dospuntos
+# Helper para calcular líneas impresas por render_texto_con_dospuntos
 def calcular_lineas_totales_texto(pdf, texto, max_w, font_size=8.5):
     if es_vacio_o_none(texto):
         return 0
@@ -164,7 +164,7 @@ def calcular_lineas_totales_texto(pdf, texto, max_w, font_size=8.5):
     return lineas_count
 
 
-# Función para imprimir bloques de texto formateando en NEGRITA lo que está antes de ':'
+# Imprimir bloques con clave en negrita antes de ':'
 def render_texto_con_dospuntos(pdf, texto, x_start, max_w, font_size=8.5, line_h=4.5):
     if es_vacio_o_none(texto):
         return
@@ -194,7 +194,7 @@ def render_texto_con_dospuntos(pdf, texto, x_start, max_w, font_size=8.5, line_h
             pdf.multi_cell(max_w, line_h, limpiar_texto(linea))
 
 
-# Función auxiliar para descargar imágenes de URL para el PDF
+# Descargar imágenes remotas para el PDF
 def obtener_bytes_imagen(url_img):
     if es_vacio_o_none(url_img):
         return None
@@ -1603,7 +1603,7 @@ elif opcion == "4. Historial de Documentos":
 # -------------------------------------------------------------------------
 elif opcion == "5. Control de Transferencias":
     st.title("💸 Control de Transferencias y Órdenes de Pago")
-    st.write("Registra pagos multimoneda con conversión a USD, cálculo de comisiones (flat y %), múltiples comprobantes y exportación a Excel / CSV.")
+    st.write("Registra pagos multimoneda con conversión precisa a USD, cálculo de comisiones (flat y %), desglose de Gran Total y exportación a Excel / CSV.")
 
     try:
         res_emp = supabase.table("empresas").select("nombre").execute()
@@ -1617,7 +1617,7 @@ elif opcion == "5. Control de Transferencias":
     entidades_base = list(dict.fromkeys(ENTIDADES_PREDEFINIDAS + lista_empresas_db + lista_clientes_db))
     opciones_select = ["➕ Escribir Manualmente / Otro"] + entidades_base
 
-    # NAVEGACIÓN SIN ERRORES DE WIDGET STATE
+    # NAVEGACIÓN LIMPIA SIN CONFLICTOS DE WIDGET
     opciones_seccion_transf = ["➕ Registrar / Editar Transferencia", "📊 Historial, Reportes y Descarga"]
     
     idx_pestana_nav = 1 if st.session_state.get("pestana_transf_activa") == "📊 Historial, Reportes y Descarga" else 0
@@ -1689,7 +1689,7 @@ elif opcion == "5. Control de Transferencias":
                         fecha_val = date.today()
                 fecha_transf = st.date_input("Fecha *", value=fecha_val)
             with col_m2:
-                monedas_list = ["USD ($)", "RMB (¥)", "EUR (€)", "VES (Bs.)", "USDT (Crypto)"]
+                monedas_list = ["USD ($)", "EUR (€)", "RMB (¥)", "VES (Bs.)", "USDT (Crypto)"]
                 mon_idx = 0
                 if transf_edit and transf_edit.get("moneda") in monedas_list:
                     mon_idx = monedas_list.index(transf_edit.get("moneda"))
@@ -1709,33 +1709,49 @@ elif opcion == "5. Control de Transferencias":
             tasa_val_default = float(transf_edit.get("tasa_cambio", 1.0)) if (transf_edit and transf_edit.get("tasa_cambio")) else 1.0
             
             with col_conv1:
-                if moneda_transf not in ["USD ($)", "USDT (Crypto)"]:
+                if moneda_transf == "EUR (€)":
+                    tasa_eur_def = tasa_val_default if tasa_val_default > 0 else 1.08
                     tasa_cambio = st.number_input(
-                        f"💱 Tasa de Cambio (Unidades de {moneda_transf.split()[0]} por 1 USD):",
+                        "💱 Tasa de Cambio (EUR to USD -> 1 EUR = X USD):",
                         min_value=0.0001,
-                        value=tasa_val_default if tasa_val_default > 0 else 1.0,
+                        value=tasa_eur_def,
+                        step=0.005,
+                        format="%.4f",
+                        help="Ejemplo: Si 1 Euro = 1.08 Dólares, ingresa 1.08"
+                    )
+                    monto_en_usd = round(monto_transf * tasa_cambio, 2)
+                    calculo_label = f"{monto_transf:,.2f} EUR × {tasa_cambio:.4f} = ${monto_en_usd:,.2f} USD"
+                elif moneda_transf in ["RMB (¥)", "VES (Bs.)"]:
+                    simb_m = "RMB" if "RMB" in moneda_transf else "Bs."
+                    def_tasa = tasa_val_default if tasa_val_default > 0 else (7.25 if simb_m == "RMB" else 36.50)
+                    tasa_cambio = st.number_input(
+                        f"💱 Tasa de Cambio (1 USD = X {simb_m}):",
+                        min_value=0.0001,
+                        value=def_tasa,
                         step=0.01,
                         format="%.4f",
-                        help="Ejemplo para RMB: Si 1 USD = 7.25 RMB, coloca 7.25. Ejemplo para VES: 36.50"
+                        help=f"Ejemplo: Si 1 Dólar = {def_tasa} {simb_m}, ingresa {def_tasa}"
                     )
-                    monto_en_usd = round(monto_transf / tasa_cambio, 2) if tasa_cambio > 0 else monto_transf
+                    monto_en_usd = round(monto_transf / tasa_cambio, 2) if tasa_cambio > 0 else 0.0
+                    calculo_label = f"{monto_transf:,.2f} {simb_m} ÷ {tasa_cambio:.4f} = ${monto_en_usd:,.2f} USD"
                 else:
                     tasa_cambio = 1.0
                     monto_en_usd = monto_transf
+                    calculo_label = f"${monto_en_usd:,.2f} USD"
 
             with col_conv2:
                 if moneda_transf not in ["USD ($)", "USDT (Crypto)"]:
-                    st.info(f"💵 **Monto Equivalente:** `{monto_en_usd:,.2f} USD` (Calculado automáticamente)")
+                    st.info(f"💵 **Conversión a USD:** `{calculo_label}`")
                 else:
                     st.caption("ℹ️ Transacción en moneda base USD / USDT.")
 
             # SECCIÓN DE COMISIONES
-            st.markdown("### 🏷️ Comisiones Aplicables (Opcional)")
+            st.markdown("### 🏷️ Comisiones Aplicables")
             col_com1, col_com2, col_com3 = st.columns(3)
             
             with col_com1:
                 com_flat_def = float(transf_edit.get("comision_flat", 0.0)) if (transf_edit and transf_edit.get("comision_flat")) else 0.0
-                comision_flat = st.number_input("Comisión Flat (Monto Fijo en misma divisa)", min_value=0.0, value=com_flat_def, step=1.0, format="%.2f")
+                comision_flat = st.number_input("Comisión Flat (Monto Fijo en divisa original)", min_value=0.0, value=com_flat_def, step=1.0, format="%.2f")
             
             with col_com2:
                 com_porc_def = float(transf_edit.get("comision_porc", 0.0)) if (transf_edit and transf_edit.get("comision_porc")) else 0.0
@@ -1743,13 +1759,19 @@ elif opcion == "5. Control de Transferencias":
 
             monto_com_porc = monto_transf * (comision_porc / 100.0) if comision_porc > 0 else 0.0
             total_comisiones = comision_flat + monto_com_porc
-            monto_neto_total = monto_transf + total_comisiones
+            gran_total = monto_transf + total_comisiones
+
+            # Calcular Gran Total en USD
+            if moneda_transf == "EUR (€)":
+                gran_total_usd = round(gran_total * tasa_cambio, 2)
+            elif moneda_transf in ["RMB (¥)", "VES (Bs.)"]:
+                gran_total_usd = round(gran_total / tasa_cambio, 2) if tasa_cambio > 0 else gran_total
+            else:
+                gran_total_usd = gran_total
 
             with col_com3:
-                if total_comisiones > 0:
-                    st.success(f"**Total Comisiones:** `{moneda_transf} {total_comisiones:,.2f}`\n\n**Total Efectivo / Débito:** `{moneda_transf} {monto_neto_total:,.2f}`")
-                else:
-                    st.caption("Sin comisiones adicionales aplicadas.")
+                txt_usd_extra = f" (≈ ${gran_total_usd:,.2f} USD)" if moneda_transf not in ["USD ($)", "USDT (Crypto)"] else ""
+                st.success(f"**Total Comisiones:** `{moneda_transf} {total_comisiones:,.2f}`\n\n### 🏆 **Gran Total:** `{moneda_transf} {gran_total:,.2f}`{txt_usd_extra}")
 
             st.divider()
 
@@ -1814,8 +1836,10 @@ elif opcion == "5. Control de Transferencias":
                     "comision_flat": float(comision_flat),
                     "comision_porc": float(comision_porc),
                     "total_comision": float(total_comisiones),
+                    "gran_total": float(gran_total),
                     "tasa_cambio": float(tasa_cambio),
-                    "monto_usd": float(monto_en_usd)
+                    "monto_usd": float(monto_en_usd),
+                    "gran_total_usd": float(gran_total_usd)
                 }
 
                 guardado_exitoso = False
@@ -1826,9 +1850,9 @@ elif opcion == "5. Control de Transferencias":
                         supabase.table("transferencias").insert(datos_t).execute()
                     guardado_exitoso = True
                 except Exception as e_t:
-                    # Sistema de rescate si la base de datos no tiene las columnas nuevas
+                    # Respaldo automático para bases de datos sin las columnas nuevas
                     try:
-                        obs_con_detalles = f"{obs_transf.strip()} | [Comisión: Flat={comision_flat:.2f}, %={comision_porc:.2f} | Tasa={tasa_cambio} | Equiv USD: ${monto_en_usd:,.2f}]".strip(" | ")
+                        obs_con_detalles = f"{obs_transf.strip()} | [Comisión: Flat={comision_flat:.2f}, %={comision_porc:.2f} | Gran Total: {gran_total:,.2f} | Equiv USD: ${monto_en_usd:,.2f} | Gran Total USD: ${gran_total_usd:,.2f}]".strip(" | ")
                         datos_t_backup = {
                             "fecha": str(fecha_transf),
                             "origen": origen_final.strip(),
@@ -1911,10 +1935,10 @@ elif opcion == "5. Control de Transferencias":
             if not df_tf.empty:
                 st.markdown("#### 📈 Resumen Financiero:")
                 
-                # Calcular total consolidado en USD si existe la columna monto_usd
+                # Consolidado en USD
                 total_usd_consolidado = 0.0
                 if "monto_usd" in df_tf.columns:
-                    total_usd_consolidado = df_tf["monto_usd"].dropna().sum()
+                    total_usd_consolidado = df_tf["monto_usd"].fillna(0.0).sum()
                 
                 monedas_encontradas = df_tf["moneda"].unique()
                 cols_met = st.columns(len(monedas_encontradas) + (1 if total_usd_consolidado > 0 else 0))
@@ -1922,11 +1946,11 @@ elif opcion == "5. Control de Transferencias":
                 for idx_m, m_nom in enumerate(monedas_encontradas):
                     suma_m = df_tf[df_tf["moneda"] == m_nom]["monto"].sum()
                     with cols_met[idx_m]:
-                        st.metric(label=f"Total {m_nom}", value=f"{suma_m:,.2f}")
+                        st.metric(label=f"Total Base {m_nom}", value=f"{suma_m:,.2f}")
                 
                 if total_usd_consolidado > 0:
                     with cols_met[-1]:
-                        st.metric(label="💵 Consolidado Total (USD)", value=f"${total_usd_consolidado:,.2f}")
+                        st.metric(label="💵 Consolidado Total Base (USD)", value=f"${total_usd_consolidado:,.2f}")
 
             st.divider()
 
@@ -1939,18 +1963,29 @@ elif opcion == "5. Control de Transferencias":
                     c_urls = obtener_urls_comprobantes(row.get("comprobante_url"))
                     urls_unidas = " | ".join(c_urls) if c_urls else "Sin archivos"
                     
+                    monto_base_r = float(row.get("monto", 0.0) or 0.0)
+                    com_flat_r = float(row.get("comision_flat", 0.0) or 0.0)
+                    com_porc_r = float(row.get("comision_porc", 0.0) or 0.0)
+                    tot_com_r = float(row.get("total_comision", (com_flat_r + (monto_base_r * com_porc_r / 100.0))) or 0.0)
+                    gran_tot_r = float(row.get("gran_total", (monto_base_r + tot_com_r)) or (monto_base_r + tot_com_r))
+                    
+                    monto_usd_r = float(row.get("monto_usd", monto_base_r) or monto_base_r)
+                    gran_usd_r = float(row.get("gran_total_usd", monto_usd_r) or monto_usd_r)
+
                     filas_para_exportar.append({
                         "Fecha": row.get("fecha", ""),
                         "Estado": row.get("estado", ""),
                         "Origen / Emisor": row.get("origen", ""),
                         "Destino / Beneficiario": row.get("destino", ""),
-                        "Moneda Original": row.get("moneda", ""),
-                        "Monto Original": row.get("monto", 0.0),
-                        "Tasa a USD": row.get("tasa_cambio", 1.0) if row.get("tasa_cambio") else 1.0,
-                        "Monto Equiv. USD ($)": row.get("monto_usd", row.get("monto", 0.0)) if row.get("monto_usd") else row.get("monto", 0.0),
-                        "Comisión Flat": row.get("comision_flat", 0.0) if row.get("comision_flat") else 0.0,
-                        "Comisión %": row.get("comision_porc", 0.0) if row.get("comision_porc") else 0.0,
-                        "Total Comisión": row.get("total_comision", 0.0) if row.get("total_comision") else 0.0,
+                        "Moneda": row.get("moneda", ""),
+                        "Monto Base Original": monto_base_r,
+                        "Tasa de Cambio a USD": row.get("tasa_cambio", 1.0) if row.get("tasa_cambio") else 1.0,
+                        "Monto Base en USD ($)": monto_usd_r,
+                        "Comisión Flat": com_flat_r,
+                        "Comisión %": com_porc_r,
+                        "Total Comisiones": tot_com_r,
+                        "Gran Total (Moneda Original)": gran_tot_r,
+                        "Gran Total en USD ($)": gran_usd_r,
                         "N° Referencia": row.get("referencia", ""),
                         "Concepto / Observaciones": row.get("observaciones", ""),
                         "Enlaces a Comprobantes": urls_unidas
@@ -1964,7 +1999,7 @@ elif opcion == "5. Control de Transferencias":
                 csv_bytes = df_export_limpio.to_csv(index=False).encode('utf-8-sig')
                 with col_exp1:
                     st.download_button(
-                        label="📄 Descargar CSV Organizado",
+                        label="📄 Descargar CSV Detallado",
                         data=csv_bytes,
                         file_name=f"transferencias_detallado_{date.today()}.csv",
                         mime="text/csv",
@@ -1994,40 +2029,60 @@ elif opcion == "5. Control de Transferencias":
             # LISTA DE REGISTROS CON ACCIÓN DE EDITAR Y BORRAR
             for tr in tf_filtradas:
                 badge_color = "🟢" if tr.get("estado") == "Completada" else ("🟡" if "Pendiente" in tr.get("estado", "") else "🔵")
-                titulo_tr = f"{badge_color} {tr.get('fecha')} | {tr.get('origen')} ➡️ {tr.get('destino')} | {tr.get('moneda')} {tr.get('monto', 0):,.2f}"
+                mon_tr = tr.get("moneda", "USD ($)")
+                monto_orig = float(tr.get("monto", 0.0) or 0.0)
+                
+                # Cálculos de comisiones y gran total
+                c_flat = float(tr.get("comision_flat", 0.0) or 0.0)
+                c_porc = float(tr.get("comision_porc", 0.0) or 0.0)
+                c_tot = float(tr.get("total_comision", (c_flat + (monto_orig * c_porc / 100.0))) or 0.0)
+                g_tot = float(tr.get("gran_total", (monto_orig + c_tot)) or (monto_orig + c_tot))
+                
+                monto_usd_val = float(tr.get("monto_usd", 0.0) or 0.0)
+                g_tot_usd_val = float(tr.get("gran_total_usd", 0.0) or 0.0)
+
+                # Título del expander con doble moneda y Gran Total
+                if mon_tr not in ["USD ($)", "USDT (Crypto)"] and monto_usd_val > 0:
+                    titulo_tr = f"{badge_color} {tr.get('fecha')} | {tr.get('origen')} ➡️ {tr.get('destino')} | {mon_tr} {monto_orig:,.2f} (≈ ${monto_usd_val:,.2f} USD) | Gran Total: {mon_tr} {g_tot:,.2f}"
+                else:
+                    titulo_tr = f"{badge_color} {tr.get('fecha')} | {tr.get('origen')} ➡️ {tr.get('destino')} | {mon_tr} {monto_orig:,.2f} | Gran Total: {mon_tr} {g_tot:,.2f}"
 
                 with st.expander(titulo_tr):
-                    col_r1, col_r2, col_r3 = st.columns([2, 2, 1.5])
+                    col_r1, col_r2, col_r3 = st.columns([2, 2, 1.8])
 
                     with col_r1:
                         st.write(f"**📤 Origen:** {tr.get('origen')}")
                         st.write(f"**📥 Destino:** {tr.get('destino')}")
                         st.write(f"**📅 Fecha:** {tr.get('fecha')}")
-                        if tr.get("tasa_cambio") and tr.get("moneda") not in ["USD ($)", "USDT (Crypto)"]:
-                            st.write(f"**💱 Tasa de cambio:** 1 USD = {tr.get('tasa_cambio')} {tr.get('moneda').split()[0]}")
+                        if tr.get("tasa_cambio") and mon_tr not in ["USD ($)", "USDT (Crypto)"]:
+                            if mon_tr == "EUR (€)":
+                                st.write(f"**💱 Tasa EUR to USD:** 1 EUR = {tr.get('tasa_cambio')} USD")
+                            else:
+                                st.write(f"**💱 Tasa de cambio:** 1 USD = {tr.get('tasa_cambio')} {mon_tr.split()[0]}")
 
                     with col_r2:
                         st.write(f"**📌 Estado:** `{tr.get('estado')}`")
                         st.write(f"**🔢 Referencia:** {tr.get('referencia') if tr.get('referencia') else 'Sin referencia'}")
                         
                         # Mostrar comisiones si existen
-                        com_f = tr.get("comision_flat", 0.0) or 0.0
-                        com_p = tr.get("comision_porc", 0.0) or 0.0
-                        tot_c = tr.get("total_comision", 0.0) or 0.0
-                        if tot_c > 0 or com_f > 0 or com_p > 0:
-                            st.write(f"**🏷️ Comisiones:** Flat: {com_f:,.2f} | %: {com_p}% (Total: {tot_c:,.2f})")
+                        if c_tot > 0 or c_flat > 0 or c_porc > 0:
+                            st.write(f"**🏷️ Comisiones:** Flat: {c_flat:,.2f} | %: {c_porc:.2f}% (Total: {c_tot:,.2f})")
 
                         if tr.get("observaciones"):
                             st.write(f"**📝 Notas:** {tr.get('observaciones')}")
 
                     with col_r3:
-                        st.markdown(f"### `{tr.get('moneda')} {tr.get('monto', 0):,.2f}`")
-                        if tr.get("monto_usd") and tr.get("moneda") not in ["USD ($)", "USDT (Crypto)"]:
-                            st.caption(f"💵 Equivalente: **${tr.get('monto_usd', 0):,.2f} USD**")
+                        st.markdown(f"**Monto Base:** `{mon_tr} {monto_orig:,.2f}`")
+                        if mon_tr not in ["USD ($)", "USDT (Crypto)"] and monto_usd_val > 0:
+                            st.caption(f"💵 Base en USD: **${monto_usd_val:,.2f} USD**")
+
+                        st.markdown(f"### 🏆 Gran Total:\n`{mon_tr} {g_tot:,.2f}`")
+                        if mon_tr not in ["USD ($)", "USDT (Crypto)"] and g_tot_usd_val > 0:
+                            st.caption(f"💵 Gran Total en USD: **${g_tot_usd_val:,.2f} USD**")
 
                         urls_archivos = obtener_urls_comprobantes(tr.get("comprobante_url"))
                         if urls_archivos:
-                            st.markdown("**📎 Comprobantes / Facturas:**")
+                            st.markdown("**📎 Comprobantes:**")
                             for num_f, f_url in enumerate(urls_archivos, start=1):
                                 st.link_button(f"👁️ Ver Archivo #{num_f}", f_url, use_container_width=True)
                         else:
