@@ -977,8 +977,12 @@ def crear_pdf_reporte_transferencias(lista_transferencias):
         m_base = float(tr.get("monto", 0.0) or 0.0)
         c_flat = float(tr.get("comision_flat", 0.0) or 0.0)
         c_porc = float(tr.get("comision_porc", 0.0) or 0.0)
-        c_tot = float(tr.get("total_comision", (c_flat + (m_base * c_porc / 100.0))) or 0.0)
-        g_tot = float(tr.get("gran_total", (m_base + c_tot)) or (m_base + c_tot))
+        
+        # CÁLCULO: Se suma Flat primero y sobre ese resultado el %
+        m_con_flat = m_base + c_flat
+        m_porc_val = m_con_flat * (c_porc / 100.0) if c_porc > 0 else 0.0
+        c_tot = float(tr.get("total_comision", (c_flat + m_porc_val)) or (c_flat + m_porc_val))
+        g_tot = float(tr.get("gran_total", (m_con_flat + m_porc_val)) or (m_con_flat + m_porc_val))
         
         m_usd = float(tr.get("monto_usd", m_base) or m_base)
         g_usd = float(tr.get("gran_total_usd", m_usd) or m_usd)
@@ -1040,8 +1044,11 @@ def crear_pdf_reporte_transferencias(lista_transferencias):
         m_base = float(tr.get("monto", 0.0) or 0.0)
         c_flat = float(tr.get("comision_flat", 0.0) or 0.0)
         c_porc = float(tr.get("comision_porc", 0.0) or 0.0)
-        c_tot = float(tr.get("total_comision", (c_flat + (m_base * c_porc / 100.0))) or 0.0)
-        g_tot = float(tr.get("gran_total", (m_base + c_tot)) or (m_base + c_tot))
+        
+        m_con_flat = m_base + c_flat
+        m_porc_val = m_con_flat * (c_porc / 100.0) if c_porc > 0 else 0.0
+        c_tot = float(tr.get("total_comision", (c_flat + m_porc_val)) or (c_flat + m_porc_val))
+        g_tot = float(tr.get("gran_total", (m_con_flat + m_porc_val)) or (m_con_flat + m_porc_val))
 
         m_usd = float(tr.get("monto_usd", m_base) or m_base)
         g_usd = float(tr.get("gran_total_usd", m_usd) or m_usd)
@@ -1941,7 +1948,7 @@ elif opcion == "5. Control de Transferencias":
                     value=com_porc_def, 
                     step=0.1, 
                     format="%.2f",
-                    help="Se calcula y se suma primero sobre el monto base"
+                    help="Se calcula sobre el subtotal que ya incluye la comisión flat"
                 )
 
             with col_com2:
@@ -1952,14 +1959,19 @@ elif opcion == "5. Control de Transferencias":
                     value=com_flat_def, 
                     step=1.0, 
                     format="%.2f",
-                    help="Se adiciona después de haber sumado la comisión porcentual"
+                    help="Se suma primero al monto base antes de aplicar la comisión porcentual"
                 )
 
-            monto_com_porc = monto_transf * (comision_porc / 100.0) if comision_porc > 0 else 0.0
-            subtotal_con_porc = monto_transf + monto_com_porc
+            # NUEVA LÓGICA DE CÁLCULO DE COMISIONES:
+            # PASO 1: Sumar primero la comisión Flat al monto base
+            subtotal_con_flat = monto_transf + comision_flat
 
-            gran_total = subtotal_con_porc + comision_flat
-            total_comisiones = monto_com_porc + comision_flat
+            # PASO 2: Calcular la comisión porcentual sobre el subtotal (Base + Flat)
+            monto_com_porc = subtotal_con_flat * (comision_porc / 100.0) if comision_porc > 0 else 0.0
+
+            # GRAN TOTAL Y COMISIONES TOTALES
+            gran_total = subtotal_con_flat + monto_com_porc
+            total_comisiones = comision_flat + monto_com_porc
 
             if moneda_transf == "EUR (€)":
                 gran_total_usd = round(gran_total * tasa_cambio, 2)
@@ -1973,8 +1985,8 @@ elif opcion == "5. Control de Transferencias":
                 
                 if total_comisiones > 0:
                     desglose_texto = (
-                        f"• Base + {comision_porc:.2f}%: `{moneda_transf} {subtotal_con_porc:,.2f}`\n\n"
-                        f"• + Flat: `+{comision_flat:,.2f}`\n\n"
+                        f"• Base + Flat ({comision_flat:,.2f}): `{moneda_transf} {subtotal_con_flat:,.2f}`\n\n"
+                        f"• + {comision_porc:.2f}%: `+{monto_com_porc:,.2f}`\n\n"
                         f"### 🏆 **Gran Total:** `{moneda_transf} {gran_total:,.2f}`{txt_usd_extra}"
                     )
                     st.success(desglose_texto)
@@ -2172,8 +2184,11 @@ elif opcion == "5. Control de Transferencias":
                     monto_base_r = float(row.get("monto", 0.0) or 0.0)
                     com_flat_r = float(row.get("comision_flat", 0.0) or 0.0)
                     com_porc_r = float(row.get("comision_porc", 0.0) or 0.0)
-                    tot_com_r = float(row.get("total_comision", (com_flat_r + (monto_base_r * com_porc_r / 100.0))) or 0.0)
-                    gran_tot_r = float(row.get("gran_total", (monto_base_r + tot_com_r)) or (monto_base_r + tot_com_r))
+                    
+                    base_con_flat_r = monto_base_r + com_flat_r
+                    m_porc_r = base_con_flat_r * (com_porc_r / 100.0) if com_porc_r > 0 else 0.0
+                    tot_com_r = float(row.get("total_comision", (com_flat_r + m_porc_r)) or (com_flat_r + m_porc_r))
+                    gran_tot_r = float(row.get("gran_total", (base_con_flat_r + m_porc_r)) or (base_con_flat_r + m_porc_r))
                     
                     monto_usd_r = float(row.get("monto_usd", monto_base_r) or monto_base_r)
                     gran_usd_r = float(row.get("gran_total_usd", monto_usd_r) or monto_usd_r)
@@ -2255,8 +2270,11 @@ elif opcion == "5. Control de Transferencias":
                 
                 c_flat = float(tr.get("comision_flat", 0.0) or 0.0)
                 c_porc = float(tr.get("comision_porc", 0.0) or 0.0)
-                c_tot = float(tr.get("total_comision", (c_flat + (monto_orig * c_porc / 100.0))) or 0.0)
-                g_tot = float(tr.get("gran_total", (monto_orig + c_tot)) or (monto_orig + c_tot))
+                
+                orig_con_flat = monto_orig + c_flat
+                m_porc_card = orig_con_flat * (c_porc / 100.0) if c_porc > 0 else 0.0
+                c_tot = float(tr.get("total_comision", (c_flat + m_porc_card)) or (c_flat + m_porc_card))
+                g_tot = float(tr.get("gran_total", (orig_con_flat + m_porc_card)) or (orig_con_flat + m_porc_card))
                 
                 monto_usd_val = float(tr.get("monto_usd", 0.0) or 0.0)
                 g_tot_usd_val = float(tr.get("gran_total_usd", 0.0) or 0.0)
