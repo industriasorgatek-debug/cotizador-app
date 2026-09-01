@@ -103,10 +103,7 @@ def calcular_lineas_multiline(pdf, texto, ancho, font_name="Helvetica", font_sty
     if es_vacio_o_none(texto):
         return 1
     pdf.set_font(font_name, font_style, font_size)
-    
-    # Ancho efectivo considerando márgenes internos de celda de FPDF
     ancho_util = max(5.0, ancho - 4.5)
-    
     texto_norm = str(texto).replace("\r\n", "\n").replace("\r", "\n")
     lineas_totales = 0
     
@@ -226,10 +223,10 @@ def crear_pdf_orden_compra(
     es_ingles = (idioma == "Inglés")
     es_producto = (tipo_item == "Producto")
 
-    c_dark = (15, 23, 42)       # Slate 900
-    c_emerald = (4, 120, 87)    # Emerald 700
-    c_line = (203, 213, 225)    # Slate 300
-    c_text_mut = (100, 116, 139)# Slate 500
+    c_dark = (15, 23, 42)
+    c_emerald = (4, 120, 87)
+    c_line = (203, 213, 225)
+    c_text_mut = (100, 116, 139)
 
     logo_bytes = obtener_bytes_imagen(empresa.get("logo_url"))
     sello_bytes = obtener_bytes_imagen(empresa.get("sello_firma_url"))
@@ -366,7 +363,7 @@ def crear_pdf_orden_compra(
     pdf.line(15, pdf.get_y(), 195, pdf.get_y())
     pdf.ln(3)
 
-    # 4. Tabla de Productos (Ajuste Perfecto)
+    # 4. Tabla de Productos
     pdf.set_font("Helvetica", "B", 8)
     pdf.set_fill_color(*c_dark)
     pdf.set_text_color(255, 255, 255)
@@ -410,7 +407,6 @@ def crear_pdf_orden_compra(
         l_sub = calcular_lineas_multiline(pdf, sub_texto, w_sub, font_size=8.5)
         
         n_lineas_max = max(l_desc, l_cant, l_prec, l_sub, 1)
-        # Altura de fila calculada con margen de seguridad absoluto (+ 4.0 mm)
         h_fila = max(8.0, (n_lineas_max * 4.0) + 4.0)
 
         if pdf.get_y() + h_fila > 275:
@@ -709,7 +705,7 @@ def crear_pdf_cotizacion(
 
     pdf.set_y(y_bloque + box_h_cabecera + 4)
 
-    # 3. Tabla de Productos / Servicios (Ajuste Perfecto)
+    # 3. Tabla de Productos / Servicios
     pdf.set_font("Helvetica", "B", 9)
     pdf.set_fill_color(26, 54, 93)
     pdf.set_text_color(255, 255, 255)
@@ -751,7 +747,6 @@ def crear_pdf_cotizacion(
         l_sub = calcular_lineas_multiline(pdf, sub_texto, w_sub, font_size=8.5)
         
         n_lineas_max = max(l_desc, l_um, l_cant, l_prec, l_sub, 1)
-        # Altura de fila calculada con margen de seguridad absoluto (+ 4.0 mm)
         h_fila = max(8.0, (n_lineas_max * 4.0) + 4.0)
 
         if pdf.get_y() + h_fila > 275:
@@ -955,8 +950,8 @@ if "modo_formulario" not in st.session_state:
     st.session_state["modo_formulario"] = "crear"
 if "transf_edit_data" not in st.session_state:
     st.session_state["transf_edit_data"] = None
-if "sub_seccion_transf" not in st.session_state:
-    st.session_state["sub_seccion_transf"] = "➕ Registrar / Editar Transferencia"
+if "pestana_transf_activa" not in st.session_state:
+    st.session_state["pestana_transf_activa"] = "➕ Registrar / Editar Transferencia"
 
 opcion = st.sidebar.radio("Selecciona un módulo:", [
     "1. Empresas", 
@@ -1604,13 +1599,12 @@ elif opcion == "4. Historial de Documentos":
                             st.error(f"Error al eliminar: {e_del}")
 
 # -------------------------------------------------------------------------
-# MÓDULO 5: CONTROL Y REGISTRO DE TRANSFERENCIAS (MEJORADO)
+# MÓDULO 5: CONTROL Y REGISTRO DE TRANSFERENCIAS (MEJORADO Y BLINDADO)
 # -------------------------------------------------------------------------
 elif opcion == "5. Control de Transferencias":
     st.title("💸 Control de Transferencias y Órdenes de Pago")
-    st.write("Registra pagos multimoneda, adjunta múltiples comprobantes y exporta tu historial a Excel o CSV.")
+    st.write("Registra pagos multimoneda con conversión a USD, cálculo de comisiones (flat y %), múltiples comprobantes y exportación a Excel / CSV.")
 
-    # Obtener listas de nombres para sugerir en los selectores
     try:
         res_emp = supabase.table("empresas").select("nombre").execute()
         lista_empresas_db = [e["nombre"] for e in res_emp.data]
@@ -1623,16 +1617,24 @@ elif opcion == "5. Control de Transferencias":
     entidades_base = list(dict.fromkeys(ENTIDADES_PREDEFINIDAS + lista_empresas_db + lista_clientes_db))
     opciones_select = ["➕ Escribir Manualmente / Otro"] + entidades_base
 
-    # Menú de navegación dinámico
+    # NAVEGACIÓN SIN ERRORES DE WIDGET STATE
     opciones_seccion_transf = ["➕ Registrar / Editar Transferencia", "📊 Historial, Reportes y Descarga"]
     
+    idx_pestana_nav = 1 if st.session_state.get("pestana_transf_activa") == "📊 Historial, Reportes y Descarga" else 0
+
+    def cambio_de_pestana_callback():
+        st.session_state["pestana_transf_activa"] = st.session_state["radio_nav_transf_key"]
+
     pestana_activa = st.radio(
         "Navegación:",
         options=opciones_seccion_transf,
+        index=idx_pestana_nav,
         horizontal=True,
-        key="sub_seccion_transf",
+        key="radio_nav_transf_key",
+        on_change=cambio_de_pestana_callback,
         label_visibility="collapsed"
     )
+    st.session_state["pestana_transf_activa"] = pestana_activa
 
     st.divider()
 
@@ -1640,7 +1642,7 @@ elif opcion == "5. Control de Transferencias":
     if pestana_activa == "➕ Registrar / Editar Transferencia":
         transf_edit = st.session_state.get("transf_edit_data")
         if transf_edit:
-            st.info(f"✏️ **Modo Edición**: Modificando registro `{transf_edit.get('origen', '')} ➡️ {transf_edit.get('destino', '')}`")
+            st.info(f"✏️ **Modo Edición Activo**: Modificando registro `{transf_edit.get('origen', '')} ➡️ {transf_edit.get('destino', '')}`")
 
         with st.form("form_transferencia", clear_on_submit=False):
             col_t1, col_t2 = st.columns(2)
@@ -1675,7 +1677,8 @@ elif opcion == "5. Control de Transferencias":
 
             st.divider()
 
-            # DETALLES FINANCIEROS
+            # DETALLES FINANCIEROS Y MONEDA
+            st.markdown("### 💰 Detalles Financieros")
             col_m1, col_m2, col_m3, col_m4 = st.columns(4)
             with col_m1:
                 fecha_val = date.today()
@@ -1693,7 +1696,7 @@ elif opcion == "5. Control de Transferencias":
                 moneda_transf = st.selectbox("Moneda *", monedas_list, index=mon_idx)
             with col_m3:
                 monto_val = float(transf_edit.get("monto", 0.0)) if transf_edit else 0.0
-                monto_transf = st.number_input("Monto *", min_value=0.0, value=monto_val, step=100.0, format="%.2f")
+                monto_transf = st.number_input("Monto en Divisa Original *", min_value=0.0, value=monto_val, step=100.0, format="%.2f")
             with col_m4:
                 estados_list = ["Completada", "Pendiente / Por Pagar", "En Proceso", "Cancelada"]
                 est_idx = 0
@@ -1701,16 +1704,64 @@ elif opcion == "5. Control de Transferencias":
                     est_idx = estados_list.index(transf_edit.get("estado"))
                 estado_transf = st.selectbox("Estado *", estados_list, index=est_idx)
 
+            # CONVERSIÓN DE DIVISA (SI NO ES USD)
+            col_conv1, col_conv2 = st.columns(2)
+            tasa_val_default = float(transf_edit.get("tasa_cambio", 1.0)) if (transf_edit and transf_edit.get("tasa_cambio")) else 1.0
+            
+            with col_conv1:
+                if moneda_transf not in ["USD ($)", "USDT (Crypto)"]:
+                    tasa_cambio = st.number_input(
+                        f"💱 Tasa de Cambio (Unidades de {moneda_transf.split()[0]} por 1 USD):",
+                        min_value=0.0001,
+                        value=tasa_val_default if tasa_val_default > 0 else 1.0,
+                        step=0.01,
+                        format="%.4f",
+                        help="Ejemplo para RMB: Si 1 USD = 7.25 RMB, coloca 7.25. Ejemplo para VES: 36.50"
+                    )
+                    monto_en_usd = round(monto_transf / tasa_cambio, 2) if tasa_cambio > 0 else monto_transf
+                else:
+                    tasa_cambio = 1.0
+                    monto_en_usd = monto_transf
+
+            with col_conv2:
+                if moneda_transf not in ["USD ($)", "USDT (Crypto)"]:
+                    st.info(f"💵 **Monto Equivalente:** `{monto_en_usd:,.2f} USD` (Calculado automáticamente)")
+                else:
+                    st.caption("ℹ️ Transacción en moneda base USD / USDT.")
+
+            # SECCIÓN DE COMISIONES
+            st.markdown("### 🏷️ Comisiones Aplicables (Opcional)")
+            col_com1, col_com2, col_com3 = st.columns(3)
+            
+            with col_com1:
+                com_flat_def = float(transf_edit.get("comision_flat", 0.0)) if (transf_edit and transf_edit.get("comision_flat")) else 0.0
+                comision_flat = st.number_input("Comisión Flat (Monto Fijo en misma divisa)", min_value=0.0, value=com_flat_def, step=1.0, format="%.2f")
+            
+            with col_com2:
+                com_porc_def = float(transf_edit.get("comision_porc", 0.0)) if (transf_edit and transf_edit.get("comision_porc")) else 0.0
+                comision_porc = st.number_input("Comisión Porcentual (%)", min_value=0.0, max_value=100.0, value=com_porc_def, step=0.1, format="%.2f")
+
+            monto_com_porc = monto_transf * (comision_porc / 100.0) if comision_porc > 0 else 0.0
+            total_comisiones = comision_flat + monto_com_porc
+            monto_neto_total = monto_transf + total_comisiones
+
+            with col_com3:
+                if total_comisiones > 0:
+                    st.success(f"**Total Comisiones:** `{moneda_transf} {total_comisiones:,.2f}`\n\n**Total Efectivo / Débito:** `{moneda_transf} {monto_neto_total:,.2f}`")
+                else:
+                    st.caption("Sin comisiones adicionales aplicadas.")
+
+            st.divider()
+
             col_n1, col_n2 = st.columns(2)
             with col_n1:
                 ref_val = transf_edit.get("referencia", "") if transf_edit else ""
-                referencia_transf = st.text_input("N° de Referencia / ID de Transacción:", value=ref_val, placeholder="Ej: 9837482910 o Ref Zelle")
+                referencia_transf = st.text_input("N° de Referencia / ID de Transacción:", value=ref_val, placeholder="Ej: 9837482910 o Ref Zelle / Swift")
                 obs_val = transf_edit.get("observaciones", "") if transf_edit else ""
                 obs_transf = st.text_area("Concepto / Observaciones / Instrucciones:", value=obs_val, placeholder="Ej: Pago anticipo orden #402 / Factura comercial adjunta")
 
             with col_n2:
                 st.markdown("📎 **Comprobantes y Facturas (Múltiples Archivos)**")
-                
                 comprobantes_existentes = obtener_urls_comprobantes(transf_edit.get("comprobante_url")) if transf_edit else []
                 comprobantes_conservar = []
 
@@ -1759,27 +1810,53 @@ elif opcion == "5. Control de Transferencias":
                     "referencia": referencia_transf.strip(),
                     "estado": estado_transf,
                     "comprobante_url": comprobante_url_db,
-                    "observaciones": obs_transf.strip()
+                    "observaciones": obs_transf.strip(),
+                    "comision_flat": float(comision_flat),
+                    "comision_porc": float(comision_porc),
+                    "total_comision": float(total_comisiones),
+                    "tasa_cambio": float(tasa_cambio),
+                    "monto_usd": float(monto_en_usd)
                 }
 
+                guardado_exitoso = False
                 try:
                     if transf_edit:
                         supabase.table("transferencias").update(datos_t).eq("id", transf_edit["id"]).execute()
-                        st.success("🎉 ¡Transferencia actualizada correctamente!")
                     else:
                         supabase.table("transferencias").insert(datos_t).execute()
-                        st.success("🎉 ¡Transferencia registrada con éxito!")
-                    
-                    st.session_state["transf_edit_data"] = None
-                    st.session_state["sub_seccion_transf"] = "📊 Historial, Reportes y Descarga"
-                    st.rerun()
+                    guardado_exitoso = True
                 except Exception as e_t:
-                    st.error(f"🚨 Error al guardar en base de datos: {e_t}")
+                    # Sistema de rescate si la base de datos no tiene las columnas nuevas
+                    try:
+                        obs_con_detalles = f"{obs_transf.strip()} | [Comisión: Flat={comision_flat:.2f}, %={comision_porc:.2f} | Tasa={tasa_cambio} | Equiv USD: ${monto_en_usd:,.2f}]".strip(" | ")
+                        datos_t_backup = {
+                            "fecha": str(fecha_transf),
+                            "origen": origen_final.strip(),
+                            "destino": destino_final.strip(),
+                            "monto": float(monto_transf),
+                            "moneda": moneda_transf,
+                            "referencia": referencia_transf.strip(),
+                            "estado": estado_transf,
+                            "comprobante_url": comprobante_url_db,
+                            "observaciones": obs_con_detalles
+                        }
+                        if transf_edit:
+                            supabase.table("transferencias").update(datos_t_backup).eq("id", transf_edit["id"]).execute()
+                        else:
+                            supabase.table("transferencias").insert(datos_t_backup).execute()
+                        guardado_exitoso = True
+                    except Exception as e_t2:
+                        st.error(f"🚨 Error al guardar en base de datos: {e_t2}")
+
+                if guardado_exitoso:
+                    st.session_state["transf_edit_data"] = None
+                    st.session_state["pestana_transf_activa"] = "📊 Historial, Reportes y Descarga"
+                    st.rerun()
 
         if transf_edit:
             if st.button("❌ Cancelar Modo Edición", use_container_width=True):
                 st.session_state["transf_edit_data"] = None
-                st.session_state["sub_seccion_transf"] = "📊 Historial, Reportes y Descarga"
+                st.session_state["pestana_transf_activa"] = "📊 Historial, Reportes y Descarga"
                 st.rerun()
 
     # ------------------ SECCIÓN 2: HISTORIAL Y REPORTES ------------------
@@ -1802,7 +1879,7 @@ elif opcion == "5. Control de Transferencias":
                 busq_t = st.text_input("Buscar por palabra clave:", placeholder="Ej: United, Alina, Simkin, Suelen, N° Ref...")
             
             with col_f2:
-                todas_entidades = sorted(list(set([t["origen"] for t in transferencias] + [t["destino"] for t in transferencias])))
+                todas_entidades = sorted(list(set([t.get("origen", "") for t in transferencias if t.get("origen")] + [t.get("destino", "") for t in transferencias if t.get("destino")])))
                 filtro_entidad = st.selectbox("Filtrar por Proveedor / Cliente / Cuenta:", ["Todas"] + todas_entidades)
 
             with col_f3:
@@ -1832,43 +1909,64 @@ elif opcion == "5. Control de Transferencias":
             df_tf = pd.DataFrame(tf_filtradas)
             
             if not df_tf.empty:
-                st.markdown("#### 📈 Totales Transferidos (Según los filtros seleccionados):")
+                st.markdown("#### 📈 Resumen Financiero:")
+                
+                # Calcular total consolidado en USD si existe la columna monto_usd
+                total_usd_consolidado = 0.0
+                if "monto_usd" in df_tf.columns:
+                    total_usd_consolidado = df_tf["monto_usd"].dropna().sum()
+                
                 monedas_encontradas = df_tf["moneda"].unique()
-                cols_met = st.columns(len(monedas_encontradas) if len(monedas_encontradas) > 0 else 1)
+                cols_met = st.columns(len(monedas_encontradas) + (1 if total_usd_consolidado > 0 else 0))
+                
                 for idx_m, m_nom in enumerate(monedas_encontradas):
                     suma_m = df_tf[df_tf["moneda"] == m_nom]["monto"].sum()
                     with cols_met[idx_m]:
                         st.metric(label=f"Total {m_nom}", value=f"{suma_m:,.2f}")
+                
+                if total_usd_consolidado > 0:
+                    with cols_met[-1]:
+                        st.metric(label="💵 Consolidado Total (USD)", value=f"${total_usd_consolidado:,.2f}")
 
             st.divider()
 
-            # SECCIÓN DE DESCARGA (EXCEL Y CSV)
+            # SECCIÓN DE DESCARGA (EXCEL Y CSV LIMPIO Y ORGANIZADO)
             st.subheader("📥 Exportar Historial")
             
-            df_export = df_tf.copy()
-            if not df_export.empty:
-                cols_para_exportar = ["fecha", "origen", "destino", "monto", "moneda", "estado", "referencia", "observaciones"]
-                columnas_existentes = [c for c in cols_para_exportar if c in df_export.columns]
-                df_export_limpio = df_export[columnas_existentes].rename(columns={
-                    "fecha": "Fecha",
-                    "origen": "Origen / Emisor",
-                    "destino": "Destino / Beneficiario",
-                    "monto": "Monto",
-                    "moneda": "Moneda",
-                    "estado": "Estado",
-                    "referencia": "N° Referencia",
-                    "observaciones": "Observaciones / Concepto"
-                })
+            if not df_tf.empty:
+                filas_para_exportar = []
+                for _, row in df_tf.iterrows():
+                    c_urls = obtener_urls_comprobantes(row.get("comprobante_url"))
+                    urls_unidas = " | ".join(c_urls) if c_urls else "Sin archivos"
+                    
+                    filas_para_exportar.append({
+                        "Fecha": row.get("fecha", ""),
+                        "Estado": row.get("estado", ""),
+                        "Origen / Emisor": row.get("origen", ""),
+                        "Destino / Beneficiario": row.get("destino", ""),
+                        "Moneda Original": row.get("moneda", ""),
+                        "Monto Original": row.get("monto", 0.0),
+                        "Tasa a USD": row.get("tasa_cambio", 1.0) if row.get("tasa_cambio") else 1.0,
+                        "Monto Equiv. USD ($)": row.get("monto_usd", row.get("monto", 0.0)) if row.get("monto_usd") else row.get("monto", 0.0),
+                        "Comisión Flat": row.get("comision_flat", 0.0) if row.get("comision_flat") else 0.0,
+                        "Comisión %": row.get("comision_porc", 0.0) if row.get("comision_porc") else 0.0,
+                        "Total Comisión": row.get("total_comision", 0.0) if row.get("total_comision") else 0.0,
+                        "N° Referencia": row.get("referencia", ""),
+                        "Concepto / Observaciones": row.get("observaciones", ""),
+                        "Enlaces a Comprobantes": urls_unidas
+                    })
 
-                col_exp1, col_exp2, col_vacio = st.columns([1.5, 1.5, 3])
+                df_export_limpio = pd.DataFrame(filas_para_exportar)
+
+                col_exp1, col_exp2, _ = st.columns([1.5, 1.5, 3])
                 
                 # 1. Botón CSV
                 csv_bytes = df_export_limpio.to_csv(index=False).encode('utf-8-sig')
                 with col_exp1:
                     st.download_button(
-                        label="📄 Descargar en CSV",
+                        label="📄 Descargar CSV Organizado",
                         data=csv_bytes,
-                        file_name=f"transferencias_{date.today()}.csv",
+                        file_name=f"transferencias_detallado_{date.today()}.csv",
                         mime="text/csv",
                         use_container_width=True
                     )
@@ -1881,9 +1979,9 @@ elif opcion == "5. Control de Transferencias":
                     excel_bytes = excel_buffer.getvalue()
                     with col_exp2:
                         st.download_button(
-                            label="📊 Descargar en Excel (.xlsx)",
+                            label="📊 Descargar Excel (.xlsx)",
                             data=excel_bytes,
-                            file_name=f"transferencias_{date.today()}.xlsx",
+                            file_name=f"transferencias_detallado_{date.today()}.xlsx",
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                             use_container_width=True
                         )
@@ -1905,16 +2003,28 @@ elif opcion == "5. Control de Transferencias":
                         st.write(f"**📤 Origen:** {tr.get('origen')}")
                         st.write(f"**📥 Destino:** {tr.get('destino')}")
                         st.write(f"**📅 Fecha:** {tr.get('fecha')}")
+                        if tr.get("tasa_cambio") and tr.get("moneda") not in ["USD ($)", "USDT (Crypto)"]:
+                            st.write(f"**💱 Tasa de cambio:** 1 USD = {tr.get('tasa_cambio')} {tr.get('moneda').split()[0]}")
 
                     with col_r2:
                         st.write(f"**📌 Estado:** `{tr.get('estado')}`")
                         st.write(f"**🔢 Referencia:** {tr.get('referencia') if tr.get('referencia') else 'Sin referencia'}")
+                        
+                        # Mostrar comisiones si existen
+                        com_f = tr.get("comision_flat", 0.0) or 0.0
+                        com_p = tr.get("comision_porc", 0.0) or 0.0
+                        tot_c = tr.get("total_comision", 0.0) or 0.0
+                        if tot_c > 0 or com_f > 0 or com_p > 0:
+                            st.write(f"**🏷️ Comisiones:** Flat: {com_f:,.2f} | %: {com_p}% (Total: {tot_c:,.2f})")
+
                         if tr.get("observaciones"):
                             st.write(f"**📝 Notas:** {tr.get('observaciones')}")
 
                     with col_r3:
                         st.markdown(f"### `{tr.get('moneda')} {tr.get('monto', 0):,.2f}`")
-                        
+                        if tr.get("monto_usd") and tr.get("moneda") not in ["USD ($)", "USDT (Crypto)"]:
+                            st.caption(f"💵 Equivalente: **${tr.get('monto_usd', 0):,.2f} USD**")
+
                         urls_archivos = obtener_urls_comprobantes(tr.get("comprobante_url"))
                         if urls_archivos:
                             st.markdown("**📎 Comprobantes / Facturas:**")
@@ -1929,7 +2039,7 @@ elif opcion == "5. Control de Transferencias":
                     with col_act1:
                         if st.button("✏️ Editar Transferencia", key=f"edit_tr_{tr['id']}", use_container_width=True):
                             st.session_state["transf_edit_data"] = tr
-                            st.session_state["sub_seccion_transf"] = "➕ Registrar / Editar Transferencia"
+                            st.session_state["pestana_transf_activa"] = "➕ Registrar / Editar Transferencia"
                             st.rerun()
 
                     with col_act2:
