@@ -1704,7 +1704,7 @@ elif opcion == "5. Control de Transferencias":
                     est_idx = estados_list.index(transf_edit.get("estado"))
                 estado_transf = st.selectbox("Estado *", estados_list, index=est_idx)
 
-            # CONVERSIÓN DE DIVISA (SI NO ES USD)
+# CONVERSIÓN DE DIVISA (SI NO ES USD)
             col_conv1, col_conv2 = st.columns(2)
             tasa_val_default = float(transf_edit.get("tasa_cambio", 1.0)) if (transf_edit and transf_edit.get("tasa_cambio")) else 1.0
             
@@ -1712,13 +1712,14 @@ elif opcion == "5. Control de Transferencias":
                 if moneda_transf == "EUR (€)":
                     tasa_eur_def = tasa_val_default if tasa_val_default > 0 else 1.08
                     tasa_cambio = st.number_input(
-                        "💱 Tasa de Cambio (EUR to USD -> 1 EUR = X USD):",
+                        "💱 Tasa EUR to USD (Multiplicador -> 1 EUR = X USD):",
                         min_value=0.0001,
                         value=tasa_eur_def,
                         step=0.005,
                         format="%.4f",
-                        help="Ejemplo: Si 1 Euro = 1.08 Dólares, ingresa 1.08"
+                        help="La tasa multiplica el monto en EUR. Ejemplo: 100 EUR × 1.08 = $108.00 USD"
                     )
+                    # MULTIPLICACIÓN DIRECTA PARA EUR:
                     monto_en_usd = round(monto_transf * tasa_cambio, 2)
                     calculo_label = f"{monto_transf:,.2f} EUR × {tasa_cambio:.4f} = ${monto_en_usd:,.2f} USD"
                 elif moneda_transf in ["RMB (¥)", "VES (Bs.)"]:
@@ -1730,7 +1731,7 @@ elif opcion == "5. Control de Transferencias":
                         value=def_tasa,
                         step=0.01,
                         format="%.4f",
-                        help=f"Ejemplo: Si 1 Dólar = {def_tasa} {simb_m}, ingresa {def_tasa}"
+                        help=f"Ejemplo: {def_tasa} {simb_m} por cada 1 USD"
                     )
                     monto_en_usd = round(monto_transf / tasa_cambio, 2) if tasa_cambio > 0 else 0.0
                     calculo_label = f"{monto_transf:,.2f} {simb_m} ÷ {tasa_cambio:.4f} = ${monto_en_usd:,.2f} USD"
@@ -1761,7 +1762,7 @@ elif opcion == "5. Control de Transferencias":
             total_comisiones = comision_flat + monto_com_porc
             gran_total = monto_transf + total_comisiones
 
-            # Calcular Gran Total en USD
+            # Calcular Gran Total en USD (EUR MULTIPLICA)
             if moneda_transf == "EUR (€)":
                 gran_total_usd = round(gran_total * tasa_cambio, 2)
             elif moneda_transf in ["RMB (¥)", "VES (Bs.)"]:
