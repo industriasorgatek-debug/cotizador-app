@@ -937,7 +937,187 @@ def crear_pdf_cotizacion(
             pass
 
     return bytes(pdf.output())
+# =========================================================================
+# MOTOR 3: REPORTE DE TRANSFERENCIAS Y PAGOS EN PDF
+# =========================================================================
+def crear_pdf_reporte_transferencias(lista_transferencias):
+    pdf = FPDF(orientation="L", unit="mm", format="A4")
+    pdf.set_margins(10, 10, 10)
+    pdf.add_page()
+    pdf.set_auto_page_break(auto=True, margin=15)
 
+    c_dark = (15, 23, 42)
+    c_blue = (26, 54, 93)
+    c_line = (203, 213, 225)
+    c_bg_alt = (241, 245, 249)
+
+    # 1. Encabezado del Reporte
+    pdf.set_font("Helvetica", "B", 16)
+    pdf.set_text_color(*c_blue)
+    pdf.cell(180, 8, limpiar_texto("REPORTE DE TRANSFERENCIAS Y PAGOS"), ln=False)
+
+    pdf.set_font("Helvetica", "", 8.5)
+    pdf.set_text_color(100, 116, 139)
+    fecha_hoy = datetime.now().strftime("%d/%m/%Y %H:%M")
+    pdf.cell(97, 8, limpiar_texto(f"Generado: {fecha_hoy}"), align="R", new_x="LMARGIN", new_y="NEXT")
+
+    pdf.set_draw_color(*c_blue)
+    pdf.set_line_width(0.6)
+    pdf.line(10, pdf.get_y(), 287, pdf.get_y())
+    pdf.ln(3)
+
+    # Resumen de registros y totales
+    total_registros = len(lista_transferencias)
+    suma_base_usd = 0.0
+    suma_gran_total_usd = 0.0
+
+    for tr in lista_transferencias:
+        m_base = float(tr.get("monto", 0.0) or 0.0)
+        c_flat = float(tr.get("comision_flat", 0.0) or 0.0)
+        c_porc = float(tr.get("comision_porc", 0.0) or 0.0)
+        c_tot = float(tr.get("total_comision", (c_flat + (m_base * c_porc / 100.0))) or 0.0)
+        g_tot = float(tr.get("gran_total", (m_base + c_tot)) or (m_base + c_tot))
+        
+        m_usd = float(tr.get("monto_usd", m_base) or m_base)
+        g_usd = float(tr.get("gran_total_usd", m_usd) or m_usd)
+
+        suma_base_usd += m_usd
+        suma_gran_total_usd += g_usd
+
+    pdf.set_font("Helvetica", "B", 9)
+    pdf.set_text_color(30, 41, 59)
+    resumen_txt = f"Total registros: {total_registros}  |  Consolidado Base USD: ${suma_base_usd:,.2f} USD  |  Consolidado Gran Total USD: ${suma_gran_total_usd:,.2f} USD"
+    pdf.cell(277, 5, limpiar_texto(resumen_txt), new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(2)
+
+    # 2. Encabezado de la Tabla
+    w_fecha, w_est, w_ori, w_des = 20, 24, 46, 46
+    w_monto, w_mon, w_musd, w_com = 26, 15, 25, 22
+    w_gtusd, w_ref = 27, 26
+
+    def render_tabla_header():
+        pdf.set_font("Helvetica", "B", 8)
+        pdf.set_fill_color(*c_dark)
+        pdf.set_text_color(255, 255, 255)
+        pdf.set_draw_color(*c_dark)
+
+        pdf.cell(w_fecha, 7, "FECHA", border=1, fill=True, align="C")
+        pdf.cell(w_est, 7, "ESTADO", border=1, fill=True, align="C")
+        pdf.cell(w_ori, 7, "ORIGEN / EMISOR", border=1, fill=True, align="L")
+        pdf.cell(w_des, 7, "DESTINO / BENEFICIARIO", border=1, fill=True, align="L")
+        pdf.cell(w_monto, 7, "MONTO ORIG.", border=1, fill=True, align="R")
+        pdf.cell(w_mon, 7, "MONEDA", border=1, fill=True, align="C")
+        pdf.cell(w_musd, 7, "BASE USD ($)", border=1, fill=True, align="R")
+        pdf.cell(w_com, 7, "COMISION", border=1, fill=True, align="R")
+        pdf.cell(w_gtusd, 7, "GRAN TOTAL USD", border=1, fill=True, align="R")
+        pdf.cell(w_ref, 7, "N REF", border=1, fill=True, align="C", new_x="LMARGIN", new_y="NEXT")
+
+    render_tabla_header()
+
+    # 3. Filas de la Tabla
+    pdf.set_font("Helvetica", "", 7.5)
+    pdf.set_text_color(30, 41, 59)
+    pdf.set_draw_color(*c_line)
+
+    fill = False
+    for tr in lista_transferencias:
+        if pdf.get_y() > 180:
+            pdf.add_page()
+            render_tabla_header()
+            pdf.set_font("Helvetica", "", 7.5)
+            pdf.set_text_color(30, 41, 59)
+            pdf.set_draw_color(*c_line)
+
+        fecha_str = str(tr.get("fecha", ""))[:10]
+        estado_str = str(tr.get("estado", ""))
+        origen_str = str(tr.get("origen", ""))
+        destino_str = str(tr.get("destino", ""))
+        moneda_str = str(tr.get("moneda", "USD")).split()[0]
+        ref_str = str(tr.get("referencia", "")) if tr.get("referencia") else "-"
+
+        m_base = float(tr.get("monto", 0.0) or 0.0)
+        c_flat = float(tr.get("comision_flat", 0.0) or 0.0)
+        c_porc = float(tr.get("comision_porc", 0.0) or 0.0)
+        c_tot = float(tr.get("total_comision", (c_flat + (m_base * c_porc / 100.0))) or 0.0)
+        g_tot = float(tr.get("gran_total", (m_base + c_tot)) or (m_base + c_tot))
+
+        m_usd = float(tr.get("monto_usd", m_base) or m_base)
+        g_usd = float(tr.get("gran_total_usd", m_usd) or m_usd)
+
+        l_ori = calcular_lineas_multiline(pdf, origen_str, w_ori, font_size=7.5)
+        l_des = calcular_lineas_multiline(pdf, destino_str, w_des, font_size=7.5)
+        l_ref = calcular_lineas_multiline(pdf, ref_str, w_ref, font_size=7.5)
+        
+        n_lineas = max(l_ori, l_des, l_ref, 1)
+        h_fila = max(6.5, (n_lineas * 3.5) + 3.0)
+
+        y_ini = pdf.get_y()
+        fill_color = c_bg_alt if fill else (255, 255, 255)
+        pdf.set_fill_color(*fill_color)
+
+        x_curr = 10
+        widths = [w_fecha, w_est, w_ori, w_des, w_monto, w_mon, w_musd, w_com, w_gtusd, w_ref]
+        for w in widths:
+            pdf.rect(x_curr, y_ini, w, h_fila, style="FD")
+            x_curr += w
+
+        y_text = y_ini + 1.5
+
+        pdf.set_xy(10, y_text)
+        pdf.cell(w_fecha, 3.5, limpiar_texto(fecha_str), align="C")
+
+        pdf.set_xy(10 + w_fecha, y_text)
+        pdf.cell(w_est, 3.5, limpiar_texto(estado_str[:15]), align="C")
+
+        pdf.set_xy(10 + w_fecha + w_est + 1.0, y_text)
+        pdf.multi_cell(w_ori - 2.0, 3.5, limpiar_texto(origen_str), align="L")
+
+        pdf.set_xy(10 + w_fecha + w_est + w_ori + 1.0, y_text)
+        pdf.multi_cell(w_des - 2.0, 3.5, limpiar_texto(destino_str), align="L")
+
+        pdf.set_xy(10 + w_fecha + w_est + w_ori + w_des, y_text)
+        pdf.cell(w_monto - 1.0, 3.5, f"{m_base:,.2f}", align="R")
+
+        pdf.set_xy(10 + w_fecha + w_est + w_ori + w_des + w_monto, y_text)
+        pdf.cell(w_mon, 3.5, limpiar_texto(moneda_str), align="C")
+
+        pdf.set_xy(10 + w_fecha + w_est + w_ori + w_des + w_monto + w_mon, y_text)
+        pdf.cell(w_musd - 1.0, 3.5, f"${m_usd:,.2f}", align="R")
+
+        pdf.set_xy(10 + w_fecha + w_est + w_ori + w_des + w_monto + w_mon + w_musd, y_text)
+        pdf.cell(w_com - 1.0, 3.5, f"{c_tot:,.2f}", align="R")
+
+        pdf.set_xy(10 + w_fecha + w_est + w_ori + w_des + w_monto + w_mon + w_musd + w_com, y_text)
+        pdf.cell(w_gtusd - 1.0, 3.5, f"${g_usd:,.2f}", align="R")
+
+        pdf.set_xy(10 + w_fecha + w_est + w_ori + w_des + w_monto + w_mon + w_musd + w_com + w_gtusd + 1.0, y_text)
+        pdf.multi_cell(w_ref - 2.0, 3.5, limpiar_texto(ref_str), align="C")
+
+        pdf.set_y(y_ini + h_fila)
+        fill = not fill
+
+    # Fila de Totales Consolidados
+    if pdf.get_y() > 175:
+        pdf.add_page()
+
+    y_tot = pdf.get_y()
+    pdf.set_fill_color(*c_dark)
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font("Helvetica", "B", 8)
+
+    w_tot_label = w_fecha + w_est + w_ori + w_des + w_monto + w_mon
+    pdf.rect(10, y_tot, 277, 7, style="FD")
+    
+    pdf.set_xy(10, y_tot + 1.5)
+    pdf.cell(w_tot_label - 2.0, 4, "TOTALES CONSOLIDADOS:", align="R")
+
+    pdf.set_xy(10 + w_tot_label, y_tot + 1.5)
+    pdf.cell(w_musd - 1.0, 4, f"${suma_base_usd:,.2f}", align="R")
+
+    pdf.set_xy(10 + w_tot_label + w_musd + w_com, y_tot + 1.5)
+    pdf.cell(w_gtusd - 1.0, 4, f"${suma_gran_total_usd:,.2f}", align="R")
+
+    return bytes(pdf.output())
 
 # ==========================================
 # MENÚ DE LA APLICACIÓN (STREAMLIT)
