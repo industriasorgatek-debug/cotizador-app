@@ -2164,7 +2164,7 @@ elif opcion == "5. Control de Transferencias":
             st.divider()
 
             # SECCIÓN DE DESCARGA (EXCEL Y CSV LIMPIO Y ORGANIZADO)
-col_exp1, col_exp2, col_exp3 = st.columns(3)
+            col_exp1, col_exp2, col_exp3 = st.columns(3)
                 
                 # 1. Botón CSV
                 csv_bytes = df_export_limpio.to_csv(index=False).encode('utf-8-sig')
