@@ -1746,23 +1746,42 @@ elif opcion == "5. Control de Transferencias":
                 else:
                     st.caption("ℹ️ Transacción en moneda base USD / USDT.")
 
-            # SECCIÓN DE COMISIONES
+# SECCIÓN DE COMISIONES
             st.markdown("### 🏷️ Comisiones Aplicables")
             col_com1, col_com2, col_com3 = st.columns(3)
             
             with col_com1:
-                com_flat_def = float(transf_edit.get("comision_flat", 0.0)) if (transf_edit and transf_edit.get("comision_flat")) else 0.0
-                comision_flat = st.number_input("Comisión Flat (Monto Fijo en divisa original)", min_value=0.0, value=com_flat_def, step=1.0, format="%.2f")
-            
-            with col_com2:
                 com_porc_def = float(transf_edit.get("comision_porc", 0.0)) if (transf_edit and transf_edit.get("comision_porc")) else 0.0
-                comision_porc = st.number_input("Comisión Porcentual (%)", min_value=0.0, max_value=100.0, value=com_porc_def, step=0.1, format="%.2f")
+                comision_porc = st.number_input(
+                    "1️⃣ Comisión Porcentual (%)", 
+                    min_value=0.0, 
+                    max_value=100.0, 
+                    value=com_porc_def, 
+                    step=0.1, 
+                    format="%.2f",
+                    help="Se calcula y se suma primero sobre el monto base"
+                )
 
+            with col_com2:
+                com_flat_def = float(transf_edit.get("comision_flat", 0.0)) if (transf_edit and transf_edit.get("comision_flat")) else 0.0
+                comision_flat = st.number_input(
+                    "2️⃣ Comisión Flat (Monto Fijo)", 
+                    min_value=0.0, 
+                    value=com_flat_def, 
+                    step=1.0, 
+                    format="%.2f",
+                    help="Se adiciona después de haber sumado la comisión porcentual"
+                )
+
+            # PASO 1: Sumar primero la comisión porcentual al monto base
             monto_com_porc = monto_transf * (comision_porc / 100.0) if comision_porc > 0 else 0.0
-            total_comisiones = comision_flat + monto_com_porc
-            gran_total = monto_transf + total_comisiones
+            subtotal_con_porc = monto_transf + monto_com_porc
 
-            # Calcular Gran Total en USD (EUR MULTIPLICA)
+            # PASO 2: Adicionar la comisión flat
+            gran_total = subtotal_con_porc + comision_flat
+            total_comisiones = monto_com_porc + comision_flat
+
+            # Calcular Gran Total en USD (EUR multiplica)
             if moneda_transf == "EUR (€)":
                 gran_total_usd = round(gran_total * tasa_cambio, 2)
             elif moneda_transf in ["RMB (¥)", "VES (Bs.)"]:
@@ -1772,7 +1791,16 @@ elif opcion == "5. Control de Transferencias":
 
             with col_com3:
                 txt_usd_extra = f" (≈ ${gran_total_usd:,.2f} USD)" if moneda_transf not in ["USD ($)", "USDT (Crypto)"] else ""
-                st.success(f"**Total Comisiones:** `{moneda_transf} {total_comisiones:,.2f}`\n\n### 🏆 **Gran Total:** `{moneda_transf} {gran_total:,.2f}`{txt_usd_extra}")
+                
+                if total_comisiones > 0:
+                    desglose_texto = (
+                        f"• Base + {comision_porc:.2f}%: `{moneda_transf} {subtotal_con_porc:,.2f}`\n\n"
+                        f"• + Flat: `+{comision_flat:,.2f}`\n\n"
+                        f"### 🏆 **Gran Total:** `{moneda_transf} {gran_total:,.2f}`{txt_usd_extra}"
+                    )
+                    st.success(desglose_texto)
+                else:
+                    st.success(f"### 🏆 **Gran Total:** `{moneda_transf} {gran_total:,.2f}`{txt_usd_extra}")
 
             st.divider()
 
